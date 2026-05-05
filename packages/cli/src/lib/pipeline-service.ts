@@ -144,7 +144,12 @@ export function resolveConfiguredPipeline(
 export function listRuns(store: PipelineStore, filter: RunFilter = {}): RunState[] {
   const runs = store.listRuns();
   const filtered = runs.filter((run) => {
-    if (filter.pipeline && run.pipelineName !== filter.pipeline) return false;
+    if (
+      filter.pipeline &&
+      run.pipelineName !== filter.pipeline &&
+      run.pipelineId !== filter.pipeline
+    )
+      return false;
     if (filter.status && run.loopState !== filter.status) return false;
     return true;
   });
@@ -250,6 +255,14 @@ export function hydrateEngineState(store: PipelineStore): EngineState {
   return { runs, currentRunByLoop, historySummaries };
 }
 
+/** Sentinel recorded in RunState.headSha when a run is triggered via CLI with no git context. */
+const MANUAL_TRIGGER_SHA = "manual";
+
+export interface TriggerOptions {
+  sessionId?: string;
+  headSha?: string;
+}
+
 /**
  * Trigger a manual run for a pipeline. Hydrates engine state from the store
  * so the reducer's "active run already in flight for this loop" guard fires
@@ -260,14 +273,6 @@ export function hydrateEngineState(store: PipelineStore): EngineState {
  * looked up by name without a worker session attached. Callers that already
  * have a session (e.g. lifecycle integration in v0.4) should override it.
  */
-/** Sentinel recorded in RunState.headSha when a run is triggered via CLI with no git context. */
-const MANUAL_TRIGGER_SHA = "manual";
-
-export interface TriggerOptions {
-  sessionId?: string;
-  headSha?: string;
-}
-
 export function triggerRun(
   store: PipelineStore,
   registry: PluginRegistry,

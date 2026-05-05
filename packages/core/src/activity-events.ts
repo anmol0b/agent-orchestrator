@@ -107,9 +107,58 @@ const SENSITIVE_KEY_RE = /token|password|secret|authorization|cookie|api[-_]?key
 // URL credentials: https://token@host or http://user:pass@host
 const CREDENTIAL_URL_RE = /https?:\/\/[^@\s]+@/gi;
 
+// Per-string-value cap. The whole-data 16 KB cap still applies on top of this;
+// truncating individual strings limits blast radius if a pattern below misses a
+// new token format and a long error message gets pasted in.
+const STRING_VALUE_MAX_CHARS = 500;
+
+// Token-shape patterns matched against ANY string value, not just keys.
+// Order: more-specific first. Replacement strings preserve the prefix where
+// the prefix itself is informative (e.g. "Bearer [redacted]" so RCA can still
+// see this was a bearer-auth failure).
+//
+// SENSITIVE_KEY_RE above redacts entire values under sensitive *key* names;
+// these patterns redact token-shaped *substrings* anywhere — including under
+// keys like `message` and `errorMessage`, which are the leak vector flagged
+// in PR #1620 review (data column is FTS5-indexed in events-db.ts).
+const TOKEN_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  // Bearer auth headers (also catches JWTs prefixed with Bearer)
+  [/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/gi, "Bearer [redacted]"],
+  // GitHub Personal Access Tokens — classic (ghp_/gho_/ghu_/ghs_/ghr_)
+  [/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, "[redacted]"],
+  // GitHub fine-grained PATs
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, "[redacted]"],
+  // OpenAI / Anthropic sk- keys (incl. sk-proj-, sk-svcacct-, sk-ant-)
+  [/\bsk-(?:ant-)?(?:proj-|svcacct-)?[A-Za-z0-9_-]{16,}\b/g, "[redacted]"],
+  // Slack tokens (xoxb-, xoxp-, xoxa-, xoxr-, xoxs-)
+  [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[redacted]"],
+  // AWS access key IDs (16 trailing chars exactly per AWS spec)
+  [/\bAKIA[0-9A-Z]{16}\b/g, "[redacted]"],
+  // JWTs — three base64url segments, eyJ prefix on header
+  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[redacted]"],
+  // ENV-style assignments: MY_API_TOKEN=value, GITHUB_SECRET=..., etc.
+  // Scoped to ALL_CAPS keys containing a sensitive word so prose like
+  // "the message=hello" doesn't redact.
+  [
+    /\b([A-Z][A-Z0-9_]*(?:TOKEN|PASSWORD|SECRET|AUTHORIZATION|COOKIE|API_KEY|APIKEY)[A-Z0-9_]*)=([^\s"'`]{6,})/g,
+    "$1=[redacted]",
+  ],
+];
+
+function sanitizeString(value: string): string {
+  let cleaned = value.replace(CREDENTIAL_URL_RE, "https://[redacted]@");
+  for (const [pattern, replacement] of TOKEN_PATTERNS) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
+  if (cleaned.length > STRING_VALUE_MAX_CHARS) {
+    cleaned = `${cleaned.slice(0, STRING_VALUE_MAX_CHARS - 3)}...`;
+  }
+  return cleaned;
+}
+
 function sanitizeValue(value: unknown, seen: WeakSet<object>): unknown {
   if (typeof value === "bigint") return value.toString();
-  if (typeof value === "string") return value.replace(CREDENTIAL_URL_RE, "https://[redacted]@");
+  if (typeof value === "string") return sanitizeString(value);
   if (value === null || typeof value !== "object") return value;
 
   if (seen.has(value)) return "[circular]";

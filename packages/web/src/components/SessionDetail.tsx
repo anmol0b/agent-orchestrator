@@ -22,6 +22,7 @@ import {
 } from "./SessionDetailHeader";
 import { SessionEndedSummary } from "./SessionEndedSummary";
 import { sessionActivityMeta } from "./session-detail-utils";
+import { CanvasRail } from "./canvas/CanvasRail";
 
 export type { OrchestratorZones } from "./SessionDetailHeader";
 
@@ -194,7 +195,7 @@ export function SessionDetail({
           )}
 
           <div className="dashboard-main dashboard-main--desktop">
-            <main className="session-detail-page flex-1 min-h-0 flex flex-col bg-[var(--color-bg-base)]">
+            <main className="session-detail-page flex-1 min-h-0 flex bg-[var(--color-bg-base)]">
               <div className="flex-1 min-h-0 flex flex-col">
                 {!showTerminal ? (
                   <div className="session-detail-terminal-placeholder h-full" />
@@ -220,6 +221,7 @@ export function SessionDetail({
                   />
                 )}
               </div>
+              {!isMobile && <CanvasRail sessionId={session.id} />}
             </main>
           </div>
         </div>

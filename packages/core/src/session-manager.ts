@@ -1299,12 +1299,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         environment: {
           ...environment,
           ...(opencodeConfigFile ? { OPENCODE_CONFIG: opencodeConfigFile } : {}),
+          ...(project.env ?? {}),
           PATH: buildAgentPath(environment["PATH"] ?? process.env["PATH"]),
           GH_PATH: PREFERRED_GH_PATH,
           ...(process.env["AO_AGENT_GH_TRACE"] && {
             AO_AGENT_GH_TRACE: process.env["AO_AGENT_GH_TRACE"],
           }),
-          ...(project.env ?? {}),
           AO_SESSION: sessionId,
           AO_DATA_DIR: sessionsDir, // Pass sessions directory (not root dataDir)
           AO_SESSION_NAME: sessionId, // User-facing session name
@@ -1671,12 +1671,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         launchCommand,
         environment: {
           ...environment,
+          ...(project.env ?? {}),
           PATH: buildAgentPath(environment["PATH"] ?? process.env["PATH"]),
           GH_PATH: PREFERRED_GH_PATH,
           ...(process.env["AO_AGENT_GH_TRACE"] && {
             AO_AGENT_GH_TRACE: process.env["AO_AGENT_GH_TRACE"],
           }),
-          ...(project.env ?? {}),
           AO_SESSION: sessionId,
           AO_DATA_DIR: sessionsDir,
           AO_SESSION_NAME: sessionId,
@@ -2937,12 +2937,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       environment: {
         ...environment,
         ...(opencodeConfigPath ? { OPENCODE_CONFIG: opencodeConfigPath } : {}),
+        ...(project.env ?? {}),
         PATH: buildAgentPath(environment["PATH"] ?? process.env["PATH"]),
         GH_PATH: PREFERRED_GH_PATH,
         ...(process.env["AO_AGENT_GH_TRACE"] && {
           AO_AGENT_GH_TRACE: process.env["AO_AGENT_GH_TRACE"],
         }),
-        ...(project.env ?? {}),
         AO_SESSION: sessionId,
         AO_DATA_DIR: sessionsDir,
         AO_SESSION_NAME: sessionId,

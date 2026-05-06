@@ -87,6 +87,14 @@ describe("matchesAnyGlob", () => {
     expect(matchesAnyGlob(["src/**"], "lib/foo.ts")).toBe(false);
   });
 
+  it("matches root-level files with **\\/X (GitHub Actions semantics)", () => {
+    // **\/*.ts must match both `config.ts` (root) and `src/foo.ts` (nested)
+    expect(matchesAnyGlob(["**/*.ts"], "config.ts")).toBe(true);
+    expect(matchesAnyGlob(["**/*.ts"], "src/foo.ts")).toBe(true);
+    expect(matchesAnyGlob(["**/*.ts"], "src/nested/foo.ts")).toBe(true);
+    expect(matchesAnyGlob(["**/*.ts"], "config.js")).toBe(false);
+  });
+
   it("escapes regex metacharacters in literal segments", () => {
     expect(matchesAnyGlob(["a.b"], "axb")).toBe(false); // dot is literal
     expect(matchesAnyGlob(["a.b"], "a.b")).toBe(true);

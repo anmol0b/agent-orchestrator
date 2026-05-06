@@ -30,26 +30,33 @@ import type {
 /**
  * Convert a single glob pattern to an anchored RegExp.
  *
- * Rules:
- *  - `**` matches any number of path segments (including zero).
+ * Rules (matching GitHub Actions glob semantics):
+ *  - `**` matches any number of path segments (including zero). When
+ *    written as `**\/X` it collapses the separator too, so `**\/*.ts`
+ *    matches both `config.ts` (zero segments) and `src/foo.ts`.
  *  - `*` matches anything except `/`.
  *  - All other regex metacharacters are escaped.
  *
- * Patterns are matched against the full string, so `src/**` only matches
- * paths under `src/` (not `src` itself). To match the leading directory,
- * use `src` or `src/**` together — see tests for the explicit semantics.
+ * Patterns are matched against the full string. `src/**` matches paths
+ * strictly under `src/` (not `src` itself); use `src` or `src/**` together
+ * if you need both.
  */
 function compileGlob(pattern: string): RegExp {
   let re = "";
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
-    if (c === "*") {
-      if (pattern[i + 1] === "*") {
+    if (c === "*" && pattern[i + 1] === "*") {
+      // `**/` collapses the separator so root-level paths match.
+      // `**` not followed by `/` is just any-character (including `/`).
+      if (pattern[i + 2] === "/") {
+        re += "(?:.*/)?";
+        i += 2;
+      } else {
         re += ".*";
         i++;
-      } else {
-        re += "[^/]*";
       }
+    } else if (c === "*") {
+      re += "[^/]*";
     } else if (/[.+?^${}()|[\]\\]/.test(c)) {
       re += "\\" + c;
     } else {

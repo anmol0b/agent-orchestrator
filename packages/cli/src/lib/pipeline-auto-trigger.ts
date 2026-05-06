@@ -58,14 +58,37 @@ export function createPipelineAutoTrigger(opts: {
   const { config, registry, projectId } = opts;
   return async () => {
     const projectIds = projectId ? [projectId] : Object.keys(config.projects ?? {});
+
+    // Process each project and collect failures. We never abort early so a
+    // bad SCM plugin in one project can't starve auto-triggers in others —
+    // but if any project failed, re-throw so the lifecycle-manager catch
+    // records `pipeline_auto_trigger=failure`. Without this re-throw,
+    // operators have no visibility into a persistently broken auto-trigger.
+    const failures: Array<{ projectId: string; error: unknown }> = [];
     for (const pid of projectIds) {
       try {
         await runProjectAutoTrigger(config, registry, pid);
-      } catch {
-        // Per-project failures must not abort other projects in the loop.
-        // The wrapping try/catch in lifecycle-manager.pollAll surfaces the
-        // failure to observability if all projects fail in aggregate.
+      } catch (error) {
+        failures.push({ projectId: pid, error });
       }
+    }
+
+    if (failures.length > 0) {
+      const summary = failures
+        .map(({ projectId: pid, error }) => {
+          const msg = error instanceof Error ? error.message : String(error);
+          return `${pid}: ${msg}`;
+        })
+        .join("; ");
+      const aggregate = new Error(
+        `pipeline auto-trigger failed for ${failures.length}/${projectIds.length} project(s): ${summary}`,
+      );
+      // Preserve the first error's stack via `cause` so observability has
+      // something useful to log. Aggregating all of them via AggregateError
+      // would be more correct, but our observer.recordOperation only
+      // surfaces a single `reason` string.
+      (aggregate as Error & { cause?: unknown }).cause = failures[0].error;
+      throw aggregate;
     }
   };
 }

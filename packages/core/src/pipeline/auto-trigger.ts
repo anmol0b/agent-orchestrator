@@ -127,7 +127,7 @@ export async function writeAutoTriggerState(
 export interface DispatchInput {
   pipelineName: string;
   prNumber: number;
-  triggerEventType: PREvent["type"] | "manual_queue_drain";
+  triggerEventType: PREvent["type"];
 }
 
 export interface AutoTriggerPassDeps {

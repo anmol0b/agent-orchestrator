@@ -197,12 +197,13 @@ describe("restore", () => {
     expect(mockRuntime.create).toHaveBeenCalled();
   });
 
-  it("allows restoring merged sessions", async () => {
+  it("refuses to restore sessions whose PR has merged (would silently re-spawn against the default branch)", async () => {
     const ws = "/tmp/mock-ws/app-1";
     writeMetadata(sessionsDir, "app-1", {
       worktree: ws,
       branch: "main",
       status: "merged",
+      pr: "https://github.com/acme/repo/pull/1723",
       project: "my-app",
       runtimeHandle: makeHandle("rt-old"),
     });
@@ -222,8 +223,7 @@ describe("restore", () => {
     };
 
     const sm = createSessionManager({ config, registry });
-    const restored = await sm.restore("app-1");
-    expect(restored.id).toBe("app-1");
+    await expect(sm.restore("app-1")).rejects.toThrow(/is merged/);
   });
 
   it("throws SessionNotRestorableError for working sessions", async () => {

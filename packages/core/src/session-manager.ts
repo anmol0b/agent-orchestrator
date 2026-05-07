@@ -2801,6 +2801,23 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new SessionNotRestorableError(sessionId, reason);
     }
 
+    // 3a. Refuse to silently revive a session whose PR has reached a terminal
+    //     state. The original branch has typically been deleted on merge, so
+    //     `session.branch` may have drifted to the project default branch
+    //     between the kill and the restore. Re-spawning would associate the
+    //     session with whatever PR `detectPR` finds on that branch — including
+    //     unrelated fork PRs (see #1724). If the user wants a fresh session
+    //     in this workspace, they should spawn a new one.
+    const prState = session.lifecycle.pr.state;
+    if (prState === "merged" || prState === "closed") {
+      const prRef = session.lifecycle.pr.url ?? session.pr?.url ?? raw["pr"] ?? "(unknown)";
+      throw new SessionNotRestorableError(
+        sessionId,
+        `PR ${prRef} is ${prState}; the session's work is complete. ` +
+          `Spawn a new session for follow-up work instead of restoring.`,
+      );
+    }
+
     // 4. Validate required plugins (plugins already resolved above for enrichment)
     if (!plugins.runtime) {
       throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
@@ -2967,16 +2984,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     restoredLifecycle.runtime.handle = handle;
     restoredLifecycle.runtime.lastObservedAt = now;
 
-    // Reset terminal PR state so the lifecycle manager doesn't immediately
-    // re-terminate the session. The old PR is done — if the agent creates
-    // a new one, PR auto-detect will pick it up.
-    if (restoredLifecycle.pr.state === "merged" || restoredLifecycle.pr.state === "closed") {
-      restoredLifecycle.pr.state = "none";
-      restoredLifecycle.pr.reason = "cleared_on_restore";
-      restoredLifecycle.pr.number = null;
-      restoredLifecycle.pr.url = null;
-      restoredLifecycle.pr.lastObservedAt = null;
-    }
+    // Terminal PR state (merged/closed) is rejected up-front in step 3a, so
+    // by here the lifecycle.pr is non-terminal and is preserved as-is.
 
     updateMetadata(sessionsDir, sessionId, {
       ...buildLifecycleMetadataPatch(restoredLifecycle),

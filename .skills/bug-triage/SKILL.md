@@ -314,6 +314,10 @@ gh api "repos/{owner}/{repo}/commits?path={path}&per_page=10" --jq '.[] | "\(.sh
 gh api "repos/{owner}/{repo}/contents/{path}?ref={sha}" --jq '.content' | base64 -d
 ```
 
+## Formatting Rules
+
+- **Always linkify issue/PR references.** When mentioning a GitHub issue or PR anywhere (issue bodies, PR descriptions, chat messages, comments), always include a clickable URL: `[#123](https://github.com/ComposioHQ/agent-orchestrator/issues/123)` or `[PR #456](https://github.com/ComposioHQ/agent-orchestrator/pull/456)`. Never write bare `#123` without a link — it forces the reader to manually search and navigate.
+
 ## Pitfalls
 
 - **Reporter ≠ person who tagged you.** The person who escalated the bug is often NOT the reporter. Always attribute to the actual reporter.

@@ -41,6 +41,7 @@ import {
   type Runtime,
   type Agent,
   type Workspace,
+  type WorkspaceCreateConfig,
   type Tracker,
   type SCM,
   type PluginRegistry,
@@ -1291,6 +1292,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         await plugins.agent.preLaunchSetup(workspacePath);
       }
 
+      // Install workspace hooks before launching the agent so that
+      // PostToolUse hooks (e.g. Claude Code's metadata-updater) are
+      // in place before the agent's first tool call.
+      if (plugins.agent.setupWorkspaceHooks) {
+        await plugins.agent.setupWorkspaceHooks(workspacePath, { dataDir: sessionsDir });
+      }
+      if (plugins.agent.name !== "claude-code") {
+        await setupPathWrapperWorkspace(workspacePath);
+      }
+
       const handle = await plugins.runtime.create({
         sessionId: tmuxName ?? sessionId, // Use tmux name for runtime if available
         workspacePath,
@@ -1298,6 +1309,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         environment: {
           ...environment,
           ...(opencodeConfigFile ? { OPENCODE_CONFIG: opencodeConfigFile } : {}),
+          ...(project.env ?? {}),
           PATH: buildAgentPath(environment["PATH"] ?? process.env["PATH"]),
           GH_PATH: PREFERRED_GH_PATH,
           ...(process.env["AO_AGENT_GH_TRACE"] && {
@@ -1408,53 +1420,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       invalidateCache();
 
       // Past this point every resource that needed an undo is on disk in its
-      // final form. Dismiss the stack so the prompt-delivery loop below (which
-      // is intentionally non-fatal) cannot trigger a rollback.
+      // final form. Dismiss the stack so nothing below can trigger a rollback.
       cleanupStack.dismiss();
 
-      // Send the task-specific prompt post-launch for agents that need it
-      // (e.g. Claude Code exits after -p, so we send the prompt after it starts
-      // in interactive mode). Prompt delivery failure must NOT destroy the
-      // session — the agent is running; user can retry with `ao send`.
-      let promptDelivered = false;
-      if (plugins.agent.promptDelivery === "post-launch" && agentLaunchConfig.prompt) {
-        const maxRetries = 3;
-        const baseDelayMs = 3_000;
-        let lastError: Error | undefined;
-
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            // Wait for agent to start and be ready for input
-            // Use exponential backoff: 3s, 6s, 9s between attempts
-            await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
-            await plugins.runtime.sendMessage(handle, agentLaunchConfig.prompt);
-            promptDelivered = true;
-            break;
-          } catch (err) {
-            lastError = err instanceof Error ? err : new Error(String(err));
-            console.error(
-              `[session-manager] Prompt delivery attempt ${attempt}/${maxRetries} failed: ${lastError.message}`,
-            );
-          }
-        }
-
-        if (!promptDelivered) {
-          console.error(
-            `[session-manager] FAILED to deliver prompt to session ${sessionId} after ${maxRetries} attempts. ` +
-              `User must send manually with 'ao send'. Last error: ${lastError?.message}`,
-          );
-        }
-
-        session.metadata["promptDelivered"] = String(promptDelivered);
-      } else if (agentLaunchConfig.prompt) {
-        session.metadata["promptDelivered"] = "true";
-      }
-
-      if (session.metadata["promptDelivered"]) {
-        updateMetadata(sessionsDir, sessionId, session.metadata);
-        invalidateCache();
-      }
-
+      // Prompt is delivered inline via the agent's launch command (positional argument).
+      // No post-launch polling needed — the prompt is part of process invocation.
       recordActivityEvent({
         projectId: spawnConfig.projectId,
         sessionId,
@@ -1521,16 +1491,21 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       );
     }
 
+    const workspaceConfig = {
+      projectId: orchestratorConfig.projectId,
+      project,
+      sessionId,
+      branch,
+      worktreeDir: getProjectWorktreesDir(orchestratorConfig.projectId),
+    } satisfies WorkspaceCreateConfig;
+
     let workspacePath: string;
+    let adoptedManagedWorkspace = false;
     try {
-      const wsInfo = await plugins.workspace.create({
-        projectId: orchestratorConfig.projectId,
-        project,
-        sessionId,
-        branch,
-        worktreeDir: getProjectWorktreesDir(orchestratorConfig.projectId),
-      });
+      const adoptedInfo = await plugins.workspace.findManagedWorkspace?.(workspaceConfig);
+      const wsInfo = adoptedInfo ?? (await plugins.workspace.create(workspaceConfig));
       workspacePath = wsInfo.path;
+      adoptedManagedWorkspace = adoptedInfo !== undefined && adoptedInfo !== null;
     } catch (err) {
       try {
         deleteMetadata(sessionsDir, sessionId);
@@ -1543,11 +1518,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Helper: undo worktree + metadata if anything between workspace creation
     // and a fully-written metadata record fails.
     const cleanupWorktreeAndMetadata = async (promptFile?: string): Promise<void> => {
-      try {
-        // plugins.workspace is guaranteed non-null here: we threw above if it was null
-        await plugins.workspace!.destroy(workspacePath);
-      } catch {
-        /* best effort */
+      if (!adoptedManagedWorkspace) {
+        try {
+          // plugins.workspace is guaranteed non-null here: we threw above if it was null
+          await plugins.workspace!.destroy(workspacePath);
+        } catch {
+          /* best effort */
+        }
       }
       try {
         deleteMetadata(sessionsDir, sessionId);
@@ -1662,6 +1639,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         launchCommand,
         environment: {
           ...environment,
+          ...(project.env ?? {}),
           PATH: buildAgentPath(environment["PATH"] ?? process.env["PATH"]),
           GH_PATH: PREFERRED_GH_PATH,
           ...(process.env["AO_AGENT_GH_TRACE"] && {
@@ -2927,6 +2905,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       environment: {
         ...environment,
         ...(opencodeConfigPath ? { OPENCODE_CONFIG: opencodeConfigPath } : {}),
+        ...(project.env ?? {}),
         PATH: buildAgentPath(environment["PATH"] ?? process.env["PATH"]),
         GH_PATH: PREFERRED_GH_PATH,
         ...(process.env["AO_AGENT_GH_TRACE"] && {

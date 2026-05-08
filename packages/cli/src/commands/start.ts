@@ -464,7 +464,7 @@ async function cloneRepo(parsed: ParsedRepoUrl, targetDir: string, cwd: string):
  * Detects environment, project type, and generates config with smart defaults.
  * Returns the loaded config.
  */
-async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig> {
+export async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig> {
   console.log(chalk.bold.cyan("\n  Agent Orchestrator — First Run Setup\n"));
   console.log(chalk.dim("  Detecting project and generating config...\n"));
 
@@ -758,14 +758,6 @@ async function addProjectToConfig(
   }
 
   return projectId;
-}
-
-/**
- * Create config without starting dashboard/orchestrator.
- * Used by deprecated `ao init` wrapper.
- */
-export async function createConfigOnly(): Promise<void> {
-  await autoCreateConfig(cwd());
 }
 
 /**
@@ -1419,6 +1411,14 @@ export function registerStart(program: Command): void {
                     `\n✓ Added "${addedId}" — open the dashboard to start an orchestrator.\n`,
                   ),
                 );
+                const notifyResult = await attachToDaemon(running).notifyProjectChange();
+                if (!notifyResult.ok) {
+                  console.log(
+                    chalk.yellow(
+                      `  ⚠ ${notifyResult.reason}. Refresh the page if the project doesn't show up.`,
+                    ),
+                  );
+                }
                 openUrl(`http://localhost:${running.port}`);
                 unlockStartup();
                 process.exit(0);

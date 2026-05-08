@@ -110,7 +110,6 @@ export {
   isTmuxAvailable,
   listSessions as listTmuxSessions,
   hasSession as hasTmuxSession,
-  newSession as newTmuxSession,
   sendKeys as tmuxSendKeys,
   capturePane as tmuxCapturePane,
   killSession as killTmuxSession,
@@ -204,6 +203,9 @@ export {
   buildAgentPath,
   PREFERRED_GH_PATH,
 } from "./agent-workspace-hooks.js";
+
+// Git-based activity helpers — recent-commit liveness signal for agent plugins
+export { hasRecentCommits } from "./git-activity.js";
 export type { NormalizedOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 
 export {

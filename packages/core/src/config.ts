@@ -249,6 +249,7 @@ const ProjectConfigSchema = z.object({
   runtime: z.string().optional(),
   agent: z.string().optional(),
   workspace: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
   tracker: TrackerConfigSchema.optional(),
   scm: SCMConfigSchema.optional(),
   symlinks: z.array(z.string()).optional(),
@@ -995,7 +996,7 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   return config;
 }
 
-/** Get the default config (useful for `ao init`) */
+/** Get the default config (useful for first-run setup) */
 export function getDefaultConfig(): OrchestratorConfig {
   return validateConfig({
     projects: {},

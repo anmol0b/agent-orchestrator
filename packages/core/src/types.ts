@@ -464,15 +464,6 @@ export interface Agent {
   /** Process name to look for (e.g. "claude", "codex", "aider") */
   readonly processName: string;
 
-  /**
-   * How the initial prompt should be delivered to the agent.
-   * - "inline" (default): prompt is included in the launch command (e.g. -p flag)
-   * - "post-launch": prompt is sent via runtime.sendMessage() after the agent starts,
-   *   keeping the agent in interactive mode. Use this for agents where inlining
-   *   the prompt causes one-shot/exit behavior (e.g. Claude Code's -p flag).
-   */
-  readonly promptDelivery?: "inline" | "post-launch";
-
   /** Get the shell command to launch this agent */
   getLaunchCommand(config: AgentLaunchConfig): string;
 
@@ -522,7 +513,7 @@ export interface Agent {
 
   /**
    * Optional: Set up agent-specific hooks/config in the workspace for automatic metadata updates.
-   * Called once per workspace during ao init/start and when creating new worktrees.
+   * Called once per workspace during ao start and when creating new worktrees.
    *
    * Each agent plugin implements this for their own config format:
    * - Claude Code: writes .claude/settings.json with PostToolUse hook
@@ -603,7 +594,7 @@ export interface AgentLaunchConfig {
 export interface WorkspaceHooksConfig {
   /** Data directory where session metadata files are stored */
   dataDir: string;
-  /** Optional session ID (may not be known at ao init time) */
+  /** Optional session ID (may not be known at workspace setup time) */
   sessionId?: string;
 }
 
@@ -644,6 +635,12 @@ export interface Workspace {
 
   /** List existing workspaces for a project */
   list(projectId: string): Promise<WorkspaceInfo[]>;
+
+  /**
+   * Optional: find a pre-existing AO-managed workspace that already tracks the
+   * requested branch and can be adopted instead of creating a fresh workspace.
+   */
+  findManagedWorkspace?(config: WorkspaceCreateConfig): Promise<WorkspaceInfo | null>;
 
   /** Optional: run hooks after workspace creation (symlinks, installs, etc.) */
   postCreate?(info: WorkspaceInfo, project: ProjectConfig): Promise<void>;
@@ -1497,6 +1494,9 @@ export interface ProjectConfig {
 
   /** Override default workspace */
   workspace?: string;
+
+  /** Environment variables forwarded into worker session runtimes (AO_* internals always win) */
+  env?: Record<string, string>;
 
   /** Issue tracker configuration */
   tracker?: TrackerConfig;

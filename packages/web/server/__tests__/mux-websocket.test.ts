@@ -41,6 +41,12 @@ const { SessionBroadcaster, TerminalManager } = await import("../mux-websocket")
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+function makeMockProcess(): EventEmitter & { stderr: EventEmitter } {
+  const proc = new EventEmitter() as EventEmitter & { stderr: EventEmitter };
+  proc.stderr = new EventEmitter();
+  return proc;
+}
+
 describe("SessionBroadcaster", () => {
   let broadcaster: SessionBroadcasterType;
 
@@ -262,13 +268,13 @@ describe("SessionBroadcaster", () => {
   });
 });
 
-describe("TerminalManager.open — tmux target args (regression for #1714)", () => {
+describe("TerminalManager.open — tmux set-option handling (regression for #1704)", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
     mockPtySpawn.mockReset();
 
     // spawn() returns an object that emits "error" — we just need .on() to work.
-    mockSpawn.mockImplementation(() => new EventEmitter());
+    mockSpawn.mockImplementation(() => makeMockProcess());
 
     // ptySpawn() returns a minimal IPty-like stub so terminal wiring doesn't crash.
     mockPtySpawn.mockImplementation(() => ({
@@ -309,5 +315,29 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
     expect(mockPtySpawn).toHaveBeenCalledTimes(1);
     const [, args] = mockPtySpawn.mock.calls[0];
     expect(args).toEqual(["attach-session", "-t", "=ao-177"]);
+  });
+
+  it("logs non-zero set-option exits with tmux stderr", () => {
+    const procs: Array<EventEmitter & { stderr: EventEmitter }> = [];
+    mockSpawn.mockImplementation(() => {
+      const proc = makeMockProcess();
+      procs.push(proc);
+      return proc;
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const mgr = new TerminalManager("/usr/bin/tmux");
+      mgr.open("ao-177");
+
+      procs[0].stderr.emit("data", Buffer.from("no such session: =ao-177\n"));
+      procs[0].emit("exit", 1, null);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[MuxServer] Failed to set mouse mode for ao-177: tmux set-option exit 1: no such session: =ao-177",
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

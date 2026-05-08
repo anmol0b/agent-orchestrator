@@ -230,6 +230,36 @@ export class TerminalManager {
     this.TMUX = tmuxPath ?? findTmux();
   }
 
+  private setTmuxOption(
+    tmuxSessionId: string,
+    option: string,
+    value: string,
+    description: string,
+  ): void {
+    const proc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, option, value]);
+    let stderr = "";
+
+    proc.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on("error", (err) => {
+      console.error(`[MuxServer] Failed to ${description} for ${tmuxSessionId}:`, err.message);
+    });
+
+    proc.on("exit", (code, signal) => {
+      if (code === 0) {
+        return;
+      }
+
+      const reason = code === null ? `signal ${signal ?? "unknown"}` : `exit ${code}`;
+      const detail = stderr.trim();
+      console.error(
+        `[MuxServer] Failed to ${description} for ${tmuxSessionId}: tmux set-option ${reason}${detail ? `: ${detail}` : ""}`,
+      );
+    });
+  }
+
   private terminalKey(id: string, projectId?: string): string {
     return projectId ? `${projectId}:${id}` : id;
   }
@@ -279,16 +309,10 @@ export class TerminalManager {
     // here. The `=`-prefixed form is built below for attach-session.
 
     // Enable mouse mode
-    const mouseProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "mouse", "on"]);
-    mouseProc.on("error", (err) => {
-      console.error(`[MuxServer] Failed to set mouse mode for ${tmuxSessionId}:`, err.message);
-    });
+    this.setTmuxOption(tmuxSessionId, "mouse", "on", "set mouse mode");
 
     // Hide the status bar
-    const statusProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "status", "off"]);
-    statusProc.on("error", (err) => {
-      console.error(`[MuxServer] Failed to hide status bar for ${tmuxSessionId}:`, err.message);
-    });
+    this.setTmuxOption(tmuxSessionId, "status", "off", "hide status bar");
 
     // Build environment
     const homeDir = process.env.HOME || homedir();

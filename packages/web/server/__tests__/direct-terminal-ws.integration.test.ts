@@ -16,6 +16,7 @@ import { createDirectTerminalServer, type DirectTerminalServer } from "../direct
 
 const TMUX = findTmux();
 const TEST_SESSION = `ao-test-integration-${process.pid}`;
+const TEST_MOUSE_SESSION = `ao-test-mouse-${process.pid}`;
 const TEST_HASH_SESSION = `abcdef123456-ao-test-hash-${process.pid}`;
 const TEST_SPACED_TARGET = `abcdef123456-my project-${process.pid}`;
 
@@ -81,12 +82,41 @@ function waitForMessage(
   });
 }
 
+async function waitForTmuxOption(sessionName: string, option: string): Promise<string> {
+  const deadline = Date.now() + 3000;
+  let lastOutput = "";
+
+  while (Date.now() < deadline) {
+    try {
+      lastOutput = execFileSync(TMUX, ["show-option", "-t", sessionName, option], {
+        timeout: 5000,
+        encoding: "utf8",
+      }).trim();
+      if (lastOutput) {
+        return lastOutput;
+      }
+    } catch {
+      /* keep polling until tmux applies the option or the timeout expires */
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  return lastOutput;
+}
+
 // =============================================================================
 // Lifecycle
 // =============================================================================
 
 beforeAll(() => {
   execFileSync(TMUX, ["new-session", "-d", "-s", TEST_SESSION, "-x", "80", "-y", "24"], {
+    timeout: 5000,
+  });
+  execFileSync(TMUX, ["new-session", "-d", "-s", TEST_MOUSE_SESSION, "-x", "80", "-y", "24"], {
+    timeout: 5000,
+  });
+  execFileSync(TMUX, ["set-option", "-t", TEST_MOUSE_SESSION, "mouse", "off"], {
     timeout: 5000,
   });
   execFileSync(TMUX, ["new-session", "-d", "-s", TEST_HASH_SESSION, "-x", "80", "-y", "24"], {
@@ -106,6 +136,11 @@ afterAll(() => {
   terminal.shutdown();
   try {
     execFileSync(TMUX, ["kill-session", "-t", TEST_SESSION], { timeout: 5000 });
+  } catch {
+    /* */
+  }
+  try {
+    execFileSync(TMUX, ["kill-session", "-t", TEST_MOUSE_SESSION], { timeout: 5000 });
   } catch {
     /* */
   }
@@ -201,6 +236,25 @@ describe("mux terminal open", () => {
 
     const msg = await waitForMessage(ws, (m) => m.ch === "terminal" && m.type === "opened");
     expect(msg.id).toBe("test-session");
+
+    ws.close();
+  });
+
+  it("enables tmux mouse mode when opening a terminal over mux", async () => {
+    const ws = await connectMux();
+
+    ws.send(
+      JSON.stringify({
+        ch: "terminal",
+        id: "mouse-session",
+        tmuxName: TEST_MOUSE_SESSION,
+        type: "open",
+      }),
+    );
+
+    const msg = await waitForMessage(ws, (m) => m.ch === "terminal" && m.type === "opened");
+    expect(msg.id).toBe("mouse-session");
+    await expect(waitForTmuxOption(TEST_MOUSE_SESSION, "mouse")).resolves.toBe("mouse on");
 
     ws.close();
   });

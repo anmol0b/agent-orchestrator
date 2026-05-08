@@ -873,8 +873,6 @@ function createClaudeCodeAgent(): Agent {
   return {
     name: "claude-code",
     processName: "claude",
-    promptDelivery: "post-launch",
-
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.
       // This command must be safe for both shell and execFile contexts.
@@ -905,9 +903,12 @@ function createClaudeCodeAgent(): Agent {
         parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
       }
 
-      // NOTE: prompt is NOT included here — it's delivered post-launch via
-      // runtime.sendMessage() to keep Claude in interactive mode.
-      // Using -p causes one-shot mode (Claude exits after responding).
+      // The positional [prompt] argument auto-submits as the first user turn
+      // and keeps Claude in interactive mode. -p / --print is what triggers
+      // headless one-shot exit, not the presence of a prompt.
+      if (config.prompt) {
+        parts.push("--", shellEscape(config.prompt));
+      }
 
       return parts.join(" ");
     },
@@ -1079,10 +1080,9 @@ function createClaudeCodeAgent(): Agent {
       await setupHookInWorkspace(workspacePath);
     },
 
-    async postLaunchSetup(session: Session): Promise<void> {
-      if (!session.workspacePath) return;
-
-      await setupHookInWorkspace(session.workspacePath);
+    async postLaunchSetup(_session: Session): Promise<void> {
+      // Hooks are installed pre-launch via setupWorkspaceHooks so that
+      // PostToolUse hooks exist before the agent's first tool call.
     },
   };
 }

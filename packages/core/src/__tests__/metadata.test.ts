@@ -150,6 +150,30 @@ describe("writeMetadata + readMetadata", () => {
     const meta = readMetadata(dataDir, "app-6");
     expect(meta?.displayName).toBe("Refactor session manager");
   });
+
+  it("reads legacy key=value metadata from a .json file", () => {
+    writeFileSync(
+      join(dataDir, "legacy-json-name.json"),
+      [
+        "role=orchestrator",
+        "status=working",
+        "runtimeHandle={\"id\":\"ao-orchestrator\",\"runtimeName\":\"tmux\",\"data\":{\"createdAt\":1778013362949,\"workspacePath\":\"/tmp/project\"}}",
+        "tmuxName=ao-orchestrator",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const meta = readMetadata(dataDir, "legacy-json-name");
+    expect(meta).not.toBeNull();
+    expect(meta?.role).toBe("orchestrator");
+    expect(meta?.status).toBe("working");
+    expect(meta?.tmuxName).toBe("ao-orchestrator");
+    expect(meta?.runtimeHandle).toEqual({
+      id: "ao-orchestrator",
+      runtimeName: "tmux",
+      data: { createdAt: 1778013362949, workspacePath: "/tmp/project" },
+    });
+  });
 });
 
 describe("readMetadataRaw", () => {
@@ -184,6 +208,28 @@ describe("readMetadataRaw", () => {
 
     const raw = readMetadataRaw(dataDir, "raw-3");
     expect(raw!["runtimeHandle"]).toBe('{"id":"foo","data":{"key":"val"}}');
+  });
+
+  it("reads legacy key=value metadata from a .json file", () => {
+    writeFileSync(
+      join(dataDir, "raw-legacy.json"),
+      [
+        "role=orchestrator",
+        "status=working",
+        "runtimeHandle={\"id\":\"ao-orchestrator\",\"runtimeName\":\"tmux\",\"data\":{\"workspacePath\":\"/tmp/project\"}}",
+        "tmuxName=ao-orchestrator",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const raw = readMetadataRaw(dataDir, "raw-legacy");
+    expect(raw).not.toBeNull();
+    expect(raw?.["role"]).toBe("orchestrator");
+    expect(raw?.["status"]).toBe("working");
+    expect(raw?.["tmuxName"]).toBe("ao-orchestrator");
+    expect(raw?.["runtimeHandle"]).toBe(
+      "{\"id\":\"ao-orchestrator\",\"runtimeName\":\"tmux\",\"data\":{\"workspacePath\":\"/tmp/project\"}}",
+    );
   });
 });
 

@@ -301,28 +301,34 @@ EOF
   <p>This is what a future <code>scm-github</code> plugin would do to surface a "PR status" stats canvas, or what a <code>tracker-linear</code> plugin would do for "linked issues" tables. v0.1 declares the interface but doesn't invoke it yet — once v0.2 lands, every plugin slot (agent / SCM / tracker) gets called automatically when the API loads canvases.</p>
   <p>Effort: ~30 lines per producer. No dashboard changes, no schema changes, no PR review of UI code.</p>
 
-  <h3>Tier 3 — Renderer plugin (v0.4, ~half day)</h3>
-  <p>Ship a new canvas type as <code>@aoagents/ao-plugin-canvas-{name}</code> — the same package convention as every other AO plugin. The plugin declares its own <code>canvasType</code> id, payload schema (Zod), and React renderer. At AO build time the plugin registry walks installed <code>@aoagents/ao-plugin-canvas-*</code> packages and bundles their renderers into the dashboard.</p>
-  <p><strong>No core PR needed.</strong> Trust boundary is <code>npm install</code> — same as adding <code>@aoagents/ao-plugin-tracker-linear</code> or <code>@aoagents/ao-plugin-notifier-slack</code>.</p>
+  <h3>Tier 3 — Renderer plugin (v0.4, ~half a day for plugin author / 1.5–3 engineer-weeks of core platform work)</h3>
+  <p>Ship a new canvas type as <code>@aoagents/ao-plugin-canvas-{name}</code>. The plugin author publishes a compiled package with two entrypoints — a Node-safe schema and a browser-safe React renderer. AO discovers plugins at startup, validates payloads through the plugin's Zod schema, and bundles the renderer into the dashboard at web build time.</p>
+  <p><strong>No core PR needed</strong> — the bar to publish a plugin is <code>npm install</code>-able.</p>
   <p>Sketch:</p>
   <pre><code>@aoagents/ao-plugin-canvas-flamegraph/
-├── package.json
-├── src/
-│   ├── index.ts          # manifest + payload schema (Zod)
-│   └── renderer.tsx      # React component, default export</code></pre>
-  <p>v0.1 ships the 4 built-in types. v0.4 (queued) ships the plugin slot. Until then, if you genuinely need a new type, either reshape your data into one of the 4 existing renderers, or contribute the type to core.</p>
+├── package.json          # exports: { ".": "./dist/index.js", "./renderer": "./dist/renderer.js" }
+├── dist/
+│   ├── index.js          # manifest + Zod payload schema (Node)
+│   └── renderer.js       # React component, default export (browser)</code></pre>
+  <p>The pipeline:</p>
+  <pre><code>plugin discovery (at AO startup)
+  → Node schema registry        (core uses to validate canvas JSON)
+  → generated web renderer map  (next bundles statically — packages/web/src/generated/canvas-renderers.ts)
+  → optional generated TS union (web/internal ergonomics only)</code></pre>
+  <p>The <code>CanvasArtifact</code> discriminated union for built-in types stays closed. Plugin canvases land in a separate <code>PluginCanvasArtifact { type: string; payload: unknown }</code> branch. Runtime registries are the architecture; types are convenience.</p>
+  <p>v0.1 ships the 4 built-in types. v0.4 (queued — 1.5–3 engineer-weeks of core work) ships the plugin slot. Until then, if you genuinely need a new type, either reshape your data into an existing renderer or contribute the type to core.</p>
 
   <h3>Tier 4 — Promote into core (rare)</h3>
   <p>Once a renderer plugin has multiple production callers and the type is genuinely general, propose promoting it into core's built-in set via PR. The bar here is "this is standard infrastructure now", not "this is a new idea worth trying".</p>
 
-  <h3>The contract</h3>
+  <h3>The contract — and the honest trust statement</h3>
   <p>Three rules that hold across all four tiers:</p>
   <ul>
     <li><strong>Anyone supplies any data, in any supported type</strong> — no permission needed.</li>
-    <li><strong>Anyone ships a new type via plugin</strong> — same <code>npm install</code> trust as any other AO plugin.</li>
-    <li><strong>Nobody dynamically loads JS at runtime</strong> — no remote code, no agent-emitted React. Plugins are bundled at build time only.</li>
+    <li><strong>Anyone ships a new type via plugin</strong> — <code>npm install</code> is the trust gate.</li>
+    <li><strong>No remote-loaded JS at runtime</strong> — plugins discovered at startup from <code>node_modules</code>, renderers bundled at web build time. No URL-fetched code, no agent-emitted React.</li>
   </ul>
-  <p>This keeps install boundaries clear (one trust check per plugin, at install time), the renderer set consistent within a given AO build, and the supervisor sandbox-safe (no third-party code injected at runtime).</p>
+  <p><strong>Be honest about what <code>npm install</code> trust means here.</strong> A canvas renderer plugin is arbitrary dashboard code: it can read same-origin auth tokens, call same-origin APIs, keylog within the app, alter UI state. Build-time bundling removes the <em>remote-loading</em> risk; it does not reduce blast radius. <strong>Installing a canvas renderer plugin grants full dashboard code execution</strong> — the install path will surface this as a warning. Iframe sandboxing is a deferred future option for community / untrusted renderers.</p>
 
   <h2 id="deferred">What's deliberately not in v0.1</h2>
   <ul>

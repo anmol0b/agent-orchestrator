@@ -208,6 +208,7 @@
     <li><a href="#schema">Schema and what renders</a></li>
     <li><a href="#synthesized">The synthesized git-diff canvas</a></li>
     <li><a href="#extend">How to extend it</a></li>
+    <li><a href="#namespacing">Canvas-id namespacing</a></li>
     <li><a href="#paranoia">Built with paranoia</a></li>
     <li><a href="#files">File map</a></li>
     <li><a href="#try">Try it locally</a></li>
@@ -436,31 +437,51 @@
   <div class="tier-head">
     <span class="tier-num">TIER 3</span>
     <h3>Ship a renderer plugin</h3>
-    <span class="tier-effort">~half a day · v0.4 · no core PR</span>
+    <span class="tier-effort">~½ day plugin author · 1.5–3 eng-weeks core work · v0.4</span>
   </div>
-  <p>For data that genuinely doesn't fit the 4 existing renderers (flame graphs, Gantt charts, network topologies), publish your own renderer as <code>@aoagents/ao-plugin-canvas-{name}</code> — the same package convention as every other AO plugin. The plugin declares its own <code>canvasType</code> id, payload schema (Zod), and React component.</p>
-  <p>At AO build time the plugin registry walks installed <code>@aoagents/ao-plugin-canvas-*</code> packages, generates a TypeScript file that imports each renderer plus extends the <code>CanvasArtifact</code> discriminated union, and the web build bundles them. The dashboard's <code>CanvasRail</code> switch dispatches to the plugin's renderer when it sees the new type.</p>
+  <p>For data that genuinely doesn't fit the 4 existing renderers (flame graphs, Gantt charts, network topologies), publish your own renderer as <code>@aoagents/ao-plugin-canvas-{name}</code>. The plugin author publishes a compiled package with two entrypoints — a Node-safe schema and a browser-safe React renderer. AO discovers plugins at startup, validates payloads through the plugin's Zod schema (in core, Node), and bundles the renderer into the dashboard at web build time.</p>
+
+  <h4>Package shape</h4>
   <pre><code>@aoagents/ao-plugin-canvas-flamegraph/
-├── package.json          <span class="cmt"># name: @aoagents/ao-plugin-canvas-flamegraph</span>
-├── src/
-│   ├── index.ts          <span class="cmt"># manifest + payload schema (Zod)</span>
-│   └── renderer.tsx      <span class="cmt"># React component, default export</span></code></pre>
-  <pre><code><span class="cmt">// src/index.ts</span>
-import { z } from "zod";
-export const manifest = {
-  name: <span class="str">"flamegraph"</span>,
-  slot: <span class="str">"canvas-renderer"</span> as const,
-  canvasType: <span class="str">"flamegraph"</span>,         <span class="cmt">// new CanvasType id</span>
-  version: <span class="str">"0.1.0"</span>,
+├── package.json          <span class="cmt"># exports: { ".": "./dist/index.js", "./renderer": "./dist/renderer.js" }</span>
+├── dist/
+│   ├── index.js          <span class="cmt"># manifest + Zod payload schema (Node-safe)</span>
+│   └── renderer.js       <span class="cmt"># React component, default export (browser-safe)</span></code></pre>
+  <p>Plugin authors publish <strong>compiled ESM with declarations</strong> — not raw TSX. The renderer must be browser-safe (no Node APIs, React as <code>peerDependency</code>); the schema entrypoint must be Node-safe.</p>
+
+  <h4>How AO wires it together</h4>
+  <p>One discovery step produces three artifacts:</p>
+  <pre><code>plugin discovery
+  → Node schema registry        <span class="cmt">// core uses to validate at runtime</span>
+  → generated web renderer map  <span class="cmt">// next bundles statically</span>
+  → optional generated TS union <span class="cmt">// web/internal ergonomics only</span></code></pre>
+  <ol>
+    <li><strong>Discovery (AO startup, Node).</strong> Plugin registry walks installed <code>@aoagents/ao-plugin-canvas-*</code> packages, loads each manifest + <code>payloadSchema</code>. Detects type-id collisions; refuses to start on conflict.</li>
+    <li><strong>Schema registry (runtime, Node).</strong> <code>canvas-log.ts</code> receives a <code>CanvasSchemaRegistry</code>. Built-ins validate via the closed <code>CanvasArtifactSchema</code>; plugin canvases validate via <code>type → payloadSchema</code> lookup. Unknown type → rejected.</li>
+    <li><strong>Generated web renderer map (build time).</strong> A generator writes <code>packages/web/src/generated/canvas-renderers.ts</code> with <strong>static imports</strong> of each plugin's <code>/renderer</code> entrypoint. Next.js can't bundle dynamic plugin paths — only static imports. The barrel file gives Next a clean import graph.</li>
+    <li><strong>Renderer dispatch (runtime, browser).</strong> <code>CanvasRail</code>'s switch handles built-in types as today. The <code>default</code> branch looks up <code>canvasPluginRenderers[canvas.type]</code>. Missing entry → "Unsupported canvas type" placeholder. Renderer crash → caught by an error boundary, doesn't take down the rail.</li>
+  </ol>
+
+  <h4>Type model — closed union + plugin branch</h4>
+  <pre><code><span class="cmt">// Core types stay strict for built-ins, with a single fallback for plugin types.</span>
+type BuiltInCanvasArtifact =
+  | { type: <span class="str">"markdown"</span>; payload: { markdown: string }; ... }
+  | { type: <span class="str">"diff"</span>; payload: { files: CanvasDiffFile[] }; ... }
+  | { type: <span class="str">"table"</span>; payload: { ... }; ... }
+  | { type: <span class="str">"stats"</span>; payload: { ... }; ... };
+
+type PluginCanvasArtifact = {
+  id: string;
+  type: string;       <span class="cmt">// any canvasType registered by a plugin</span>
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  source?: string;
+  payload: unknown;   <span class="cmt">// plugin's Zod schema validates in core before serving</span>
 };
-export const payloadSchema = z.object({
-  samples: z.array(z.object({
-    name: z.string(),
-    value: z.number(),
-  })).max(<span class="str">10_000</span>),
-  unit: z.enum([<span class="str">"ms"</span>, <span class="str">"samples"</span>]),
-});</code></pre>
-  <p><strong>No core PR needed.</strong> Trust boundary: <code>npm install</code>. Same trust check as adding any other AO plugin. No runtime code injection — plugins are bundled at build time, not loaded dynamically. v0.1 ships the 4 built-ins; v0.4 (queued) ships the plugin loader.</p>
+
+type CanvasArtifact = BuiltInCanvasArtifact | PluginCanvasArtifact;</code></pre>
+  <p>Any API boundary that switches exhaustively on <code>canvas.type</code> must add an unknown / plugin branch. Runtime registries are the architecture; the TS union is a convenience layer.</p>
 </div>
 
 <div class="tier">
@@ -475,8 +496,16 @@ export const payloadSchema = z.object({
 </div>
 
 <div class="callout">
-  <strong>The contract</strong> — three rules across all four tiers. Anyone supplies any data, in any supported type (no permission needed). Anyone ships a new type via plugin (same <code>npm install</code> trust as any other AO plugin). Nobody dynamically loads JS at runtime (no remote code, no agent-emitted React). This keeps the trust boundary at install time where it belongs, the renderer set consistent within a given AO build, and the supervisor sandbox-safe.
+  <strong>The contract — and the honest trust statement.</strong> Three rules across all four tiers: anyone supplies any data in any supported type (no permission needed); anyone ships a new type via plugin (<code>npm install</code> is the trust gate); no remote-loaded JS at runtime (plugins discovered from <code>node_modules</code> at startup, renderers bundled at web build time). <strong>Be honest about what this means:</strong> a canvas renderer plugin is arbitrary dashboard code — it can read same-origin auth tokens, call same-origin APIs, keylog within the app, alter UI state. Build-time bundling removes the <em>remote-loading</em> risk; it does <em>not</em> reduce blast radius. <strong>Installing a canvas renderer plugin grants full dashboard code execution</strong> — the install path will surface this as a warning. Iframe sandboxing is deferred until v0.4 ships and a real need surfaces; half-baked iframe support is worse than no sandbox.
 </div>
+
+<h2 id="namespacing">5b. Canvas-id namespacing</h2>
+<p>Two separate concerns, often conflated:</p>
+<ul>
+  <li><strong><code>id</code></strong> — the filesystem identity of a canvas file (<code>{workspacePath}/.ao/canvases/{id}.json</code>) and its stable UI identity for animations / collapse state. Reserved prefix: <code>core-</code> for canvases synthesized by AO core (<code>core-git-diff</code>, etc). File canvases using <code>core-</code> are dropped by the reader.</li>
+  <li><strong><code>canvasType</code></strong> — the renderer dispatch key. Maps to a built-in renderer or a plugin renderer. <strong>Does not reserve <code>id</code>s.</strong> A Claude agent can legitimately produce a <code>type: "flamegraph"</code> canvas with id <code>auth-perf-2026-05-06</code> without being the flamegraph plugin author. Producers and renderers are separate concerns.</li>
+</ul>
+<p>Recommended (not enforced): plugins suggest a producer-scoped id prefix to avoid wild collision — e.g. flamegraph plugin's example agent emits <code>flamegraph-*</code> ids. Enforced: only <code>core-*</code> reservation and per-session id collision (last-writer-wins by <code>updatedAt</code>).</p>
 
 <h2 id="paranoia">6. Built with paranoia</h2>
 
@@ -574,7 +603,7 @@ EOF</code></pre>
     <tr><td><code>v0.1</code></td><td>File reader, GET endpoint, 4 renderers, synthesized git-diff, right-rail with auto-expand, 5s REST poll</td><td><strong>Shipped</strong></td></tr>
     <tr><td><code>v0.2</code></td><td><code>CanvasProducer.listCanvases</code> invoked on agent / scm / tracker plugins (Tier 2 above)</td><td>Queued</td></tr>
     <tr><td><code>v0.3</code></td><td>Mux WebSocket topic for live updates, replacing 5s poll</td><td>Queued</td></tr>
-    <tr><td><code>v0.4</code></td><td><code>canvas-renderer</code> plugin slot (Tier 3 above). Build-time bundling of <code>@aoagents/ao-plugin-canvas-*</code>, dynamic discriminated-union extension, type-id collision detection</td><td>Queued — the OSS extensibility unlock</td></tr>
+    <tr><td><code>v0.4</code></td><td><code>canvas-renderer</code> plugin slot (Tier 3 above). Plugin discovery at AO startup, Node-side schema registry, generated <code>packages/web/src/generated/canvas-renderers.ts</code> barrel of static imports for the Next.js build, renderer dispatch with error boundary, type-id collision detection, install-time trust warning, example flamegraph plugin, tests across core and web</td><td>Queued — 1.5–3 engineer-weeks of core work, the OSS extensibility unlock</td></tr>
     <tr><td>Mobile</td><td>Bottom-sheet or full-screen takeover for canvases on small viewports</td><td>Deferred</td></tr>
     <tr><td>Sandboxed iframe</td><td>Runtime-isolated escape hatch for genuinely-untrusted content (e.g. third-party HTML emitted by an agent we can't trust)</td><td>Only if a real use case shows up</td></tr>
   </tbody>
@@ -582,7 +611,7 @@ EOF</code></pre>
 
 <h2 id="non-goals">10. Deliberate non-goals</h2>
 <ul>
-  <li><strong>Dynamically-loaded React from third-party sources at runtime.</strong> URL-injected, agent-emitted, or remote-loaded renderers — never planned. v0.4's plugin slot bundles renderers at <em>build time</em> only, with the same <code>npm install</code> trust check as every other AO plugin. That's the OSS extensibility line: trust at install, not at runtime.</li>
+  <li><strong>Remote-loaded JS at runtime.</strong> No URL-fetched code, no agent-emitted React, no on-the-fly module fetching. v0.4 plugins are <em>discovered</em> at AO startup from <code>node_modules</code> (Node loads each plugin's schema entrypoint) and <em>renderers</em> are bundled at web build time via a generated barrel of static imports. That's the OSS extensibility line: trust at install, not at runtime.</li>
   <li><strong>Write APIs from the dashboard back into canvases.</strong> Read-only surface in v0.1. Bidirectional adds a whole new failure mode (auth, ordering, conflict).</li>
   <li><strong>Action buttons that mutate session state.</strong> A canvas displays; a button-click <em>does</em>. The latter is a different feature with different security implications.</li>
   <li><strong>A 9th plugin slot for canvas <em>producers</em>.</strong> Considered and rejected — producing a canvas is session output, not infrastructure. Existing plugins opt-in via <code>CanvasProducer</code>. (v0.4's <code>canvas-renderer</code> slot is different: that's UI infrastructure, where a slot makes sense.)</li>

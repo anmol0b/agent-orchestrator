@@ -189,7 +189,7 @@
   <span class="pill">v0.1 — file-based + synthesized git diff</span>
   <span class="pill">4 renderer types</span>
   <span class="pill">13 codex review passes</span>
-  <span class="pill">no new plugin slot</span>
+  <span class="pill">v0.4: renderer plugins</span>
 </div>
 
 <section class="tldr">
@@ -435,24 +435,47 @@
 <div class="tier">
   <div class="tier-head">
     <span class="tier-num">TIER 3</span>
-    <h3>Add a new <code>CanvasType</code></h3>
-    <span class="tier-effort">~half a day · core PR required</span>
+    <h3>Ship a renderer plugin</h3>
+    <span class="tier-effort">~half a day · v0.4 · no core PR</span>
   </div>
-  <p>For data that genuinely doesn't fit the 4 existing renderers (flame graphs, Gantt charts, network topologies):</p>
-  <ol>
-    <li>Extend the <code>CanvasArtifact</code> discriminated union in <a href="../packages/core/src/types.ts"><code>types.ts</code></a>.</li>
-    <li>Extend the matching Zod schema in <a href="../packages/core/src/canvas-schema.ts"><code>canvas-schema.ts</code></a>.</li>
-    <li>Write a <code>Canvas{NewType}.tsx</code> renderer in <a href="../packages/web/src/components/"><code>packages/web/src/components/</code></a>.</li>
-    <li>Add a <code>case</code> to the switch in <a href="../packages/web/src/components/CanvasRail.tsx"><code>CanvasRail.tsx</code></a>.</li>
-    <li>Tests + docs paragraph.</li>
-  </ol>
-  <p>Gated behind a core PR because the renderer ships in the supervisor dashboard. Worth it once <strong>at least two real callers</strong> need the same shape.</p>
+  <p>For data that genuinely doesn't fit the 4 existing renderers (flame graphs, Gantt charts, network topologies), publish your own renderer as <code>@aoagents/ao-plugin-canvas-{name}</code> — the same package convention as every other AO plugin. The plugin declares its own <code>canvasType</code> id, payload schema (Zod), and React component.</p>
+  <p>At AO build time the plugin registry walks installed <code>@aoagents/ao-plugin-canvas-*</code> packages, generates a TypeScript file that imports each renderer plus extends the <code>CanvasArtifact</code> discriminated union, and the web build bundles them. The dashboard's <code>CanvasRail</code> switch dispatches to the plugin's renderer when it sees the new type.</p>
+  <pre><code>@aoagents/ao-plugin-canvas-flamegraph/
+├── package.json          <span class="cmt"># name: @aoagents/ao-plugin-canvas-flamegraph</span>
+├── src/
+│   ├── index.ts          <span class="cmt"># manifest + payload schema (Zod)</span>
+│   └── renderer.tsx      <span class="cmt"># React component, default export</span></code></pre>
+  <pre><code><span class="cmt">// src/index.ts</span>
+import { z } from "zod";
+export const manifest = {
+  name: <span class="str">"flamegraph"</span>,
+  slot: <span class="str">"canvas-renderer"</span> as const,
+  canvasType: <span class="str">"flamegraph"</span>,         <span class="cmt">// new CanvasType id</span>
+  version: <span class="str">"0.1.0"</span>,
+};
+export const payloadSchema = z.object({
+  samples: z.array(z.object({
+    name: z.string(),
+    value: z.number(),
+  })).max(<span class="str">10_000</span>),
+  unit: z.enum([<span class="str">"ms"</span>, <span class="str">"samples"</span>]),
+});</code></pre>
+  <p><strong>No core PR needed.</strong> Trust boundary: <code>npm install</code>. Same trust check as adding any other AO plugin. No runtime code injection — plugins are bundled at build time, not loaded dynamically. v0.1 ships the 4 built-ins; v0.4 (queued) ships the plugin loader.</p>
+</div>
+
+<div class="tier">
+  <div class="tier-head">
+    <span class="tier-num">TIER 4</span>
+    <h3>Promote a renderer plugin into core</h3>
+    <span class="tier-effort">rare · core PR · ecosystem consensus</span>
+  </div>
+  <p>Once a renderer plugin has <strong>multiple production callers</strong> and the type is genuinely general (not specific to your stack), propose promoting it into core's built-in set via PR. The bar here is <em>"this is now standard infrastructure"</em>, not <em>"this is a new idea worth trying"</em>. Tier 3 is for trying ideas; Tier 4 is for blessing what already worked.</p>
 </div>
 
 </div>
 
 <div class="callout">
-  <strong>The contract</strong> — expressive data, constrained UI. Anyone supplies any data in any supported type (no permission needed). New types come from PRs (UI in core needs review). No third party ships JS into the supervisor dashboard (never planned). Keeps install one-step, the renderer set consistent across every AO instance, and the supervisor sandbox-safe.
+  <strong>The contract</strong> — three rules across all four tiers. Anyone supplies any data, in any supported type (no permission needed). Anyone ships a new type via plugin (same <code>npm install</code> trust as any other AO plugin). Nobody dynamically loads JS at runtime (no remote code, no agent-emitted React). This keeps the trust boundary at install time where it belongs, the renderer set consistent within a given AO build, and the supervisor sandbox-safe.
 </div>
 
 <h2 id="paranoia">6. Built with paranoia</h2>
@@ -549,19 +572,20 @@ EOF</code></pre>
   <thead><tr><th>Version</th><th>Adds</th><th>Status</th></tr></thead>
   <tbody>
     <tr><td><code>v0.1</code></td><td>File reader, GET endpoint, 4 renderers, synthesized git-diff, right-rail with auto-expand, 5s REST poll</td><td><strong>Shipped</strong></td></tr>
-    <tr><td><code>v0.2</code></td><td><code>CanvasProducer.listCanvases</code> invoked on agent / scm / tracker plugins</td><td>Queued</td></tr>
+    <tr><td><code>v0.2</code></td><td><code>CanvasProducer.listCanvases</code> invoked on agent / scm / tracker plugins (Tier 2 above)</td><td>Queued</td></tr>
     <tr><td><code>v0.3</code></td><td>Mux WebSocket topic for live updates, replacing 5s poll</td><td>Queued</td></tr>
+    <tr><td><code>v0.4</code></td><td><code>canvas-renderer</code> plugin slot (Tier 3 above). Build-time bundling of <code>@aoagents/ao-plugin-canvas-*</code>, dynamic discriminated-union extension, type-id collision detection</td><td>Queued — the OSS extensibility unlock</td></tr>
     <tr><td>Mobile</td><td>Bottom-sheet or full-screen takeover for canvases on small viewports</td><td>Deferred</td></tr>
-    <tr><td>Custom UI</td><td>Sandboxed iframe escape hatch, build-time allowlisted renderer packages</td><td>Only if justified</td></tr>
+    <tr><td>Sandboxed iframe</td><td>Runtime-isolated escape hatch for genuinely-untrusted content (e.g. third-party HTML emitted by an agent we can't trust)</td><td>Only if a real use case shows up</td></tr>
   </tbody>
 </table>
 
 <h2 id="non-goals">10. Deliberate non-goals</h2>
 <ul>
-  <li><strong>Custom React renderers from third-party plugins.</strong> Security boundary; never planned. New renderer types come from core PRs.</li>
+  <li><strong>Dynamically-loaded React from third-party sources at runtime.</strong> URL-injected, agent-emitted, or remote-loaded renderers — never planned. v0.4's plugin slot bundles renderers at <em>build time</em> only, with the same <code>npm install</code> trust check as every other AO plugin. That's the OSS extensibility line: trust at install, not at runtime.</li>
   <li><strong>Write APIs from the dashboard back into canvases.</strong> Read-only surface in v0.1. Bidirectional adds a whole new failure mode (auth, ordering, conflict).</li>
   <li><strong>Action buttons that mutate session state.</strong> A canvas displays; a button-click <em>does</em>. The latter is a different feature with different security implications.</li>
-  <li><strong>A 9th plugin slot for canvases.</strong> Considered and rejected — canvas is product output, not infrastructure. Existing plugins opt-in via <code>CanvasProducer</code>.</li>
+  <li><strong>A 9th plugin slot for canvas <em>producers</em>.</strong> Considered and rejected — producing a canvas is session output, not infrastructure. Existing plugins opt-in via <code>CanvasProducer</code>. (v0.4's <code>canvas-renderer</code> slot is different: that's UI infrastructure, where a slot makes sense.)</li>
 </ul>
 
 <footer>

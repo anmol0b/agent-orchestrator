@@ -98,26 +98,37 @@ This is what a future `scm-github` plugin would do to surface a "PR status" stat
 
 Effort: ~30 lines per producer. No dashboard changes, no schema changes, no PR review of UI code.
 
-### Tier 3 — A new renderer type
+### Tier 3 — Renderer plugin (v0.4, ~half day)
 
-If your data genuinely doesn't fit `markdown` / `diff` / `table` / `stats` (e.g. a flame graph, a Gantt chart, a network topology), you add a new `CanvasType` to core. That's:
+Ship a new canvas type as `@aoagents/ao-plugin-canvas-{name}` — the same package convention as every other AO plugin. The plugin declares its own `canvasType` id, payload schema (Zod), and React renderer. At AO build time the plugin registry walks installed `@aoagents/ao-plugin-canvas-*` packages and bundles their renderers into the dashboard.
 
-1. Extend the `CanvasArtifact` discriminated union in [`types.ts`](../packages/core/src/types.ts) and the matching Zod schema in [`canvas-schema.ts`](../packages/core/src/canvas-schema.ts).
-2. Write a `Canvas{NewType}.tsx` renderer in `packages/web/src/components/`.
-3. Add a `case` to the switch in [`CanvasRail.tsx`](../packages/web/src/components/CanvasRail.tsx).
-4. Tests + a paragraph in [`docs/canvases.md`](canvases.md).
+**No core PR needed.** Trust boundary is `npm install` — same as adding `@aoagents/ao-plugin-tracker-linear` or `@aoagents/ao-plugin-notifier-slack`.
 
-Effort: ~half a day, gated behind a core PR. Worth it when at least 2 real callers need the same shape.
+Sketch:
 
-### The trade-off — and what we deliberately won't do
+```
+@aoagents/ao-plugin-canvas-flamegraph/
+├── package.json
+├── src/
+│   ├── index.ts          # manifest + payload schema (Zod)
+│   └── renderer.tsx      # React component, default export
+```
 
-Third parties can ship canvases without forking AO, but they cannot ship arbitrary React components that the dashboard runs. The contract is **expressive data, constrained UI**:
+v0.1 ships the 4 built-in types. v0.4 (queued) ships the plugin slot. Until then, if you genuinely need a new type, you can either reshape your data into one of the 4 existing renderers, or contribute the type to core.
 
-- Anyone supplies any data, in any of the supported types — **no permission needed**.
-- Anyone proposes a new type via PR — **review needed because it's UI in core**.
-- Nobody ships JS into the supervisor dashboard — **never planned**.
+### Tier 4 — Promote into core (rare)
 
-This keeps the install one-step (no per-plugin bundling), the renderer set consistent across every AO instance, and the supervisor sandbox-safe (no third-party code in the app shell).
+Once a renderer plugin has multiple production callers and the type is genuinely general (not specific to your stack), propose promoting it into core's built-in set via PR. The bar here is "this is standard infrastructure now", not "this is a new idea worth trying".
+
+### The contract
+
+Three rules that hold across all four tiers:
+
+- **Anyone supplies any data, in any supported type** — no permission needed.
+- **Anyone ships a new type via plugin** — same `npm install` trust as any other AO plugin.
+- **Nobody dynamically loads JS at runtime** — no remote code, no agent-emitted React. Plugins are bundled at build time only.
+
+This keeps install boundaries clear (one trust check per plugin, at install time), the renderer set consistent within a given AO build, and the supervisor sandbox-safe (no third-party code injected at runtime).
 
 ## What's deliberately *not* in v0.1
 

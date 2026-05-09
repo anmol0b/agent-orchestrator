@@ -301,24 +301,28 @@ EOF
   <p>This is what a future <code>scm-github</code> plugin would do to surface a "PR status" stats canvas, or what a <code>tracker-linear</code> plugin would do for "linked issues" tables. v0.1 declares the interface but doesn't invoke it yet — once v0.2 lands, every plugin slot (agent / SCM / tracker) gets called automatically when the API loads canvases.</p>
   <p>Effort: ~30 lines per producer. No dashboard changes, no schema changes, no PR review of UI code.</p>
 
-  <h3>Tier 3 — A new renderer type</h3>
-  <p>If your data genuinely doesn't fit <code>markdown</code> / <code>diff</code> / <code>table</code> / <code>stats</code> (e.g. a flame graph, a Gantt chart, a network topology), you add a new <code>CanvasType</code> to core. That's:</p>
-  <ol>
-    <li>Extend the <code>CanvasArtifact</code> discriminated union in <a href="../packages/core/src/types.ts"><code>types.ts</code></a> and the matching Zod schema in <a href="../packages/core/src/canvas-schema.ts"><code>canvas-schema.ts</code></a>.</li>
-    <li>Write a <code>Canvas{NewType}.tsx</code> renderer in <code>packages/web/src/components/</code>.</li>
-    <li>Add a <code>case</code> to the switch in <a href="../packages/web/src/components/CanvasRail.tsx"><code>CanvasRail.tsx</code></a>.</li>
-    <li>Tests plus a paragraph in <a href="canvases.md"><code>docs/canvases.md</code></a>.</li>
-  </ol>
-  <p>Effort: ~half a day, gated behind a core PR. Worth it when at least 2 real callers need the same shape.</p>
+  <h3>Tier 3 — Renderer plugin (v0.4, ~half day)</h3>
+  <p>Ship a new canvas type as <code>@aoagents/ao-plugin-canvas-{name}</code> — the same package convention as every other AO plugin. The plugin declares its own <code>canvasType</code> id, payload schema (Zod), and React renderer. At AO build time the plugin registry walks installed <code>@aoagents/ao-plugin-canvas-*</code> packages and bundles their renderers into the dashboard.</p>
+  <p><strong>No core PR needed.</strong> Trust boundary is <code>npm install</code> — same as adding <code>@aoagents/ao-plugin-tracker-linear</code> or <code>@aoagents/ao-plugin-notifier-slack</code>.</p>
+  <p>Sketch:</p>
+  <pre><code>@aoagents/ao-plugin-canvas-flamegraph/
+├── package.json
+├── src/
+│   ├── index.ts          # manifest + payload schema (Zod)
+│   └── renderer.tsx      # React component, default export</code></pre>
+  <p>v0.1 ships the 4 built-in types. v0.4 (queued) ships the plugin slot. Until then, if you genuinely need a new type, either reshape your data into one of the 4 existing renderers, or contribute the type to core.</p>
 
-  <h3>The trade-off — and what we deliberately won't do</h3>
-  <p>Third parties can ship canvases without forking AO, but they cannot ship arbitrary React components that the dashboard runs. The contract is <strong>expressive data, constrained UI</strong>:</p>
+  <h3>Tier 4 — Promote into core (rare)</h3>
+  <p>Once a renderer plugin has multiple production callers and the type is genuinely general, propose promoting it into core's built-in set via PR. The bar here is "this is standard infrastructure now", not "this is a new idea worth trying".</p>
+
+  <h3>The contract</h3>
+  <p>Three rules that hold across all four tiers:</p>
   <ul>
-    <li>Anyone supplies any data, in any of the supported types — <strong>no permission needed</strong>.</li>
-    <li>Anyone proposes a new type via PR — <strong>review needed because it's UI in core</strong>.</li>
-    <li>Nobody ships JS into the supervisor dashboard — <strong>never planned</strong>.</li>
+    <li><strong>Anyone supplies any data, in any supported type</strong> — no permission needed.</li>
+    <li><strong>Anyone ships a new type via plugin</strong> — same <code>npm install</code> trust as any other AO plugin.</li>
+    <li><strong>Nobody dynamically loads JS at runtime</strong> — no remote code, no agent-emitted React. Plugins are bundled at build time only.</li>
   </ul>
-  <p>This keeps the install one-step (no per-plugin bundling), the renderer set consistent across every AO instance, and the supervisor sandbox-safe (no third-party code in the app shell).</p>
+  <p>This keeps install boundaries clear (one trust check per plugin, at install time), the renderer set consistent within a given AO build, and the supervisor sandbox-safe (no third-party code injected at runtime).</p>
 
   <h2 id="deferred">What's deliberately not in v0.1</h2>
   <ul>

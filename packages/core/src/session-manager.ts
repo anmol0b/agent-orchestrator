@@ -1905,12 +1905,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // on next poll. We only persist the runtime signal and detecting state —
       // the lifecycle manager's resolveProbeDecision pipeline is the single
       // authority on terminal decisions (terminated/done). See #1735.
+      // Check the on-disk state (raw) to avoid re-writing when already
+      // detecting — enrichment sets detecting in-memory, but we only need
+      // to persist the transition once to avoid resetting lastTransitionAt.
+      const onDiskLifecycle = parseCanonicalLifecycle(raw, {
+        sessionId: sessionName,
+        status: validateStatus(raw["status"]),
+      });
       if (
         session.lifecycle &&
         (session.lifecycle.runtime.state === "missing" ||
           session.lifecycle.runtime.state === "exited") &&
-        session.lifecycle.session.state !== "terminated" &&
-        session.lifecycle.session.state !== "done"
+        onDiskLifecycle.session.state !== "terminated" &&
+        onDiskLifecycle.session.state !== "done" &&
+        onDiskLifecycle.session.state !== "detecting"
       ) {
         try {
           const persisted = buildUpdatedLifecycle(sessionName, raw, (next) => {

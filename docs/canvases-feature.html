@@ -215,6 +215,7 @@
     <li><a href="#try">Try it locally</a></li>
     <li><a href="#roadmap">Roadmap</a></li>
     <li><a href="#why-no-html">Why no <code>html</code> canvas type?</a></li>
+    <li><a href="#known-tradeoffs">Known trade-offs in v0.1</a></li>
     <li><a href="#non-goals">Deliberate non-goals</a></li>
   </ol>
 </nav>
@@ -662,11 +663,20 @@ EOF</code></pre>
   <strong>Bottom line</strong> — not because we couldn't, but because direct HTML inverts the trust hierarchy (agents shouldn't be able to JS-execute in the supervisor) and sanitizers don't fix that. The plugin path covers most "I need a custom widget" cases at v0.4. Sandboxed iframe is the answer for genuine arbitrary HTML when we're ready to design the protocol properly.
 </div>
 
-<h2 id="non-goals">11. Deliberate non-goals</h2>
+<h2 id="known-tradeoffs">11. Known trade-offs in v0.1</h2>
+<p>Honest acknowledgment of where the v0.1 surface has real limits:</p>
+<ul>
+  <li><strong>5-second poll latency.</strong> Visible-tab polls every 5s, hidden tabs pause entirely. For fast-updating canvases (live test runs, streaming logs) this feels sluggish. The fix is the v0.3 mux topic — core publishes on file write, the rail subscribes per session — which gives sub-second updates without polling. Shortening the interval to 1s in v0.1 just shifts cost (10× the API calls for the same end state); the right call is to wait for push.</li>
+  <li><strong>Plugin renderers (v0.4) require an AO rebuild.</strong> Next.js can't bundle dynamic plugin paths — only static imports. <code>npm install @aoagents/ao-plugin-canvas-flamegraph</code> alone won't make the renderer appear; you need to rerun the AO build so the generated barrel picks it up. This is the cost of the "no remote-loaded JS at runtime" rule that keeps the supervisor sandbox-safe. v0.4 will ship a <code>ao plugin install</code> CLI that auto-rebuilds, but the rebuild step itself is unavoidable.</li>
+  <li><strong>Markdown renderer is intentionally limited.</strong> Headings, bold, italic, code, fenced blocks, lists, and (as of post-merge) safe HTTP/HTTPS links work. <strong>Images, HTML pass-through, tables, nested lists, and footnotes don't.</strong> Tables have a dedicated <code>table</code> canvas type; rich layouts get a renderer plugin in v0.4. Agents that produce rich reports will hit this ceiling on the markdown canvas — that's deliberate, but real.</li>
+  <li><strong>Read-only surface in v0.1.</strong> No write-back, no action buttons, no canvas-driven mutation of session state. This is where the highest-leverage UX would land — approve a diff, retry a failed test, kill a stuck session — but it's a different feature with a different trust model (every interactive control needs explicit consent gating, CSRF protection, auth scope review). Explorable post-v0.4 once the renderer plugin path is live and we have a real consent UI.</li>
+</ul>
+
+<h2 id="non-goals">12. Deliberate non-goals</h2>
 <ul>
   <li><strong>Remote-loaded JS at runtime.</strong> No URL-fetched code, no agent-emitted React, no on-the-fly module fetching. v0.4 plugins are <em>discovered</em> at AO startup from <code>node_modules</code> (Node loads each plugin's schema entrypoint) and <em>renderers</em> are bundled at web build time via a generated barrel of static imports. That's the OSS extensibility line: trust at install, not at runtime.</li>
-  <li><strong>Write APIs from the dashboard back into canvases.</strong> Read-only surface in v0.1. Bidirectional adds a whole new failure mode (auth, ordering, conflict).</li>
-  <li><strong>Action buttons that mutate session state.</strong> A canvas displays; a button-click <em>does</em>. The latter is a different feature with different security implications.</li>
+  <li><strong>Image rendering in markdown canvases.</strong> Image URLs would need an allowlist policy (which origins are trusted? what about <code>data:</code> with embedded SVG that runs JS via <code>onload</code>?). The risk-to-value ratio is bad; v0.5+ might add a curated <code>{ src, alt }</code> form once an actual use case shows up. Until then: agents that want to render an image should attach the bytes to a session and reference it from a `markdown` canvas with workspace-relative path support (also v0.5+).</li>
+  <li><strong>HTML pass-through in markdown.</strong> Even sanitized HTML opens the supervisor to mutation-XSS, CSS exfil, and same-origin token theft on every poll. See section 10.</li>
   <li><strong>A 9th plugin slot for canvas <em>producers</em>.</strong> Considered and rejected — producing a canvas is session output, not infrastructure. Existing plugins opt-in via <code>CanvasProducer</code>. (v0.4's <code>canvas-renderer</code> slot is different: that's UI infrastructure, where a slot makes sense.)</li>
 </ul>
 

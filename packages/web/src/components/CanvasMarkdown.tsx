@@ -104,10 +104,12 @@ function renderMarkdown(input: string): ReactNode[] {
 }
 
 function renderInline(text: string): ReactNode[] {
-  // Tokens: **bold**, *italic*, `code`. Plain text fills the gaps. No HTML
-  // escaping needed — React renders strings as text nodes.
+  // Tokens: **bold**, *italic*, `code`, [text](url). Plain text fills the gaps.
+  // No HTML escaping needed — React renders strings as text nodes. URLs are
+  // validated to be http(s) only; anything else (javascript:, data:, file:)
+  // renders the link text as plain text without an anchor.
   const out: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]\n]+\]\([^)\s]+\))/g;
   let last = 0;
   let key = 0;
   for (const match of text.matchAll(re)) {
@@ -122,6 +124,30 @@ function renderInline(text: string): ReactNode[] {
           {tok.slice(1, -1)}
         </code>,
       );
+    } else if (tok.startsWith("[")) {
+      const close = tok.indexOf("](");
+      const linkText = tok.slice(1, close);
+      const rawUrl = tok.slice(close + 2, -1);
+      const safeUrl = sanitizeUrl(rawUrl);
+      out.push(
+        safeUrl ? (
+          <a
+            key={key++}
+            href={safeUrl}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="text-[var(--color-accent)] underline underline-offset-2 hover:opacity-80"
+          >
+            {linkText}
+          </a>
+        ) : (
+          // Unsafe / non-http(s) scheme: render the link text as plain text so
+          // the agent's words still appear, but no clickable surface lands in
+          // the dashboard. Keeps the trust hierarchy intact (no agent-emitted
+          // javascript: / data: / file: targets).
+          <Fragment key={key++}>{linkText}</Fragment>
+        ),
+      );
     } else {
       out.push(<em key={key++}>{tok.slice(1, -1)}</em>);
     }
@@ -129,4 +155,17 @@ function renderInline(text: string): ReactNode[] {
   }
   if (last < text.length) out.push(<Fragment key={key}>{text.slice(last)}</Fragment>);
   return out;
+}
+
+function sanitizeUrl(raw: string): string | null {
+  // Only http(s). Reject javascript:, data:, vbscript:, file:, mailto:, etc.
+  // Accept relative URLs starting with "/" (same-origin) for completeness.
+  if (raw.startsWith("/")) return raw;
+  try {
+    const u = new URL(raw);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+    return null;
+  } catch {
+    return null;
+  }
 }

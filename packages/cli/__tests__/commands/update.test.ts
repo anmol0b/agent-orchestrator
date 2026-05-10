@@ -68,12 +68,17 @@ vi.mock("../../src/lib/create-session-manager.js", () => ({
 import type * as AoCoreType from "@aoagents/ao-core";
 import type * as FsType from "node:fs";
 
+const { mockIsWindows } = vi.hoisted(() => ({
+  mockIsWindows: vi.fn(() => false),
+}));
+
 vi.mock("@aoagents/ao-core", async () => {
   const actual = (await vi.importActual("@aoagents/ao-core")) as typeof AoCoreType;
   return {
     ...actual,
     loadConfig: vi.fn(() => ({ projects: {}, configPath: "/tmp/test-config.yaml" })),
     getGlobalConfigPath: () => "/tmp/test-global-config.yaml",
+    isWindows: () => mockIsWindows(),
   };
 });
 
@@ -147,6 +152,8 @@ describe("update command", () => {
     mockSpawn.mockReset();
     mockResolveUpdateChannel.mockReset();
     mockResolveUpdateChannel.mockReturnValue("manual");
+    mockIsWindows.mockReset();
+    mockIsWindows.mockReturnValue(false);
     mockSessions.value = [];
     origStdinTTY = process.stdin.isTTY;
     origStdoutTTY = process.stdout.isTTY;
@@ -540,6 +547,56 @@ describe("update command", () => {
       const all = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(all).toMatch(/brew upgrade ao/);
       expect(mockSpawn).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // runNpmInstall — Windows PATHEXT / shell handling
+  // -----------------------------------------------------------------------
+
+  describe("runNpmInstall — cross-platform spawn options", () => {
+    beforeEach(() => {
+      mockDetectInstallMethod.mockReturnValue("npm-global");
+      mockCheckForUpdate.mockResolvedValue(makeNpmUpdateInfo({ installMethod: "npm-global" }));
+      mockResolveUpdateChannel.mockReturnValue("stable"); // soft-install path skips prompt
+      mockSpawn.mockReturnValue(createMockChild(0));
+      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+      Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    });
+
+    it("passes shell:true and windowsHide:true on Windows so PATHEXT resolves npm.cmd", async () => {
+      mockIsWindows.mockReturnValue(true);
+      await program.parseAsync(["node", "test", "update"]);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
+      expect(opts.shell).toBe(true);
+      expect(opts.windowsHide).toBe(true);
+      expect(opts.stdio).toBe("inherit");
+    });
+
+    it("passes shell:false on macOS / Linux (no shell wrap needed)", async () => {
+      mockIsWindows.mockReturnValue(false);
+      await program.parseAsync(["node", "test", "update"]);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
+      expect(opts.shell).toBe(false);
+    });
+
+    it.each([
+      ["pnpm-global" as const, "pnpm add -g @aoagents/ao@latest"],
+      ["bun-global" as const, "bun add -g @aoagents/ao@latest"],
+    ])("applies the same shell:true on Windows for %s installs", async (method, command) => {
+      mockIsWindows.mockReturnValue(true);
+      mockDetectInstallMethod.mockReturnValue(method);
+      mockCheckForUpdate.mockResolvedValue(
+        makeNpmUpdateInfo({
+          installMethod: method,
+          recommendedCommand: command,
+        }),
+      );
+      await program.parseAsync(["node", "test", "update"]);
+      const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
+      expect(opts.shell).toBe(true);
     });
   });
 });

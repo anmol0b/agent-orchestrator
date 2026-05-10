@@ -4,6 +4,7 @@ import type { Command } from "commander";
 import chalk from "chalk";
 import {
   getGlobalConfigPath,
+  isWindows,
   loadConfig,
   type Session,
 } from "@aoagents/ao-core";
@@ -248,7 +249,17 @@ async function handleNpmUpdate(method: InstallMethod): Promise<void> {
 function runNpmInstall(command: string): Promise<number> {
   const [cmd, ...args] = command.split(" ");
   return new Promise<number>((resolveExit, reject) => {
-    const child = spawn(cmd!, args, { stdio: "inherit" });
+    // `shell: isWindows()` is required so PATHEXT gets consulted on Windows —
+    // npm/pnpm/bun install as `*.cmd` shims, and Node.js does not look at
+    // PATHEXT for non-shell spawns, so a bare `npm` / `pnpm` / `bun` lookup
+    // would silently ENOENT on every Windows install. `windowsHide: true`
+    // keeps the shell window from flashing. Same fix that landed for the
+    // dashboard's /api/update spawn in commit 9f29131d.
+    const child = spawn(cmd!, args, {
+      stdio: "inherit",
+      shell: isWindows(),
+      windowsHide: true,
+    });
     child.on("error", reject);
     child.on("exit", (code, signal) => {
       if (signal) {

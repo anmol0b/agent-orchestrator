@@ -271,10 +271,20 @@ describe("tracker-linear plugin", () => {
     });
 
     it("throws on HTTP errors", async () => {
-      mockHTTPError(500, "Internal Server Error");
+      mockHTTPError(400, "Bad Request");
       await expect(tracker.getIssue("INT-123", project)).rejects.toThrow(
-        "Linear API returned HTTP 500",
+        "Linear API returned HTTP 400",
       );
+    });
+
+    it("retries transient HTTP errors", async () => {
+      mockHTTPError(502, "Bad Gateway");
+      mockLinearAPI({ issue: sampleIssueNode });
+
+      const issue = await tracker.getIssue("INT-123", project);
+
+      expect(issue.id).toBe("INT-123");
+      expect(requestMock).toHaveBeenCalledTimes(2);
     });
   });
 

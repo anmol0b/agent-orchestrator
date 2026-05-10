@@ -35,6 +35,25 @@ type GraphQLTransport = <T>(query: string, variables?: Record<string, unknown>) 
 // ---------------------------------------------------------------------------
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
+const DIRECT_TRANSPORT_MAX_ATTEMPTS = 3;
+const DIRECT_TRANSPORT_RETRY_DELAY_MS = 500;
+
+class LinearHttpError extends Error {
+  constructor(
+    readonly status: number,
+    body: string,
+  ) {
+    super(`Linear API returned HTTP ${status}: ${body.slice(0, 200)}`);
+  }
+
+  get transient(): boolean {
+    return this.status === 408 || this.status === 429 || this.status >= 500;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function getApiKey(): string {
   const key = process.env["LINEAR_API_KEY"];
@@ -52,73 +71,89 @@ interface LinearResponse<T> {
 }
 
 function createDirectTransport(): GraphQLTransport {
-  return <T>(query: string, variables?: Record<string, unknown>): Promise<T> => {
+  return async <T>(query: string, variables?: Record<string, unknown>): Promise<T> => {
     const apiKey = getApiKey();
     const body = JSON.stringify({ query, variables });
 
-    return new Promise<T>((resolve, reject) => {
-      const url = new URL(LINEAR_API_URL);
-      let settled = false;
-      const settle = (fn: () => void) => {
-        if (!settled) {
-          settled = true;
-          fn();
-        }
-      };
+    const execute = (): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const url = new URL(LINEAR_API_URL);
+        let settled = false;
+        const settle = (fn: () => void) => {
+          if (!settled) {
+            settled = true;
+            fn();
+          }
+        };
 
-      const req = request(
-        {
-          hostname: url.hostname,
-          path: url.pathname,
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: apiKey,
-            "Content-Length": Buffer.byteLength(body),
+        const req = request(
+          {
+            hostname: url.hostname,
+            path: url.pathname,
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: apiKey,
+              "Content-Length": Buffer.byteLength(body),
+            },
           },
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on("error", (err: Error) => settle(() => reject(err)));
-          res.on("data", (chunk: Buffer) => chunks.push(chunk));
-          res.on("end", () => {
-            settle(() => {
-              try {
-                const text = Buffer.concat(chunks).toString("utf-8");
-                const status = res.statusCode ?? 0;
-                if (status < 200 || status >= 300) {
-                  reject(new Error(`Linear API returned HTTP ${status}: ${text.slice(0, 200)}`));
-                  return;
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on("error", (err: Error) => settle(() => reject(err)));
+            res.on("data", (chunk: Buffer) => chunks.push(chunk));
+            res.on("end", () => {
+              settle(() => {
+                try {
+                  const text = Buffer.concat(chunks).toString("utf-8");
+                  const status = res.statusCode ?? 0;
+                  if (status < 200 || status >= 300) {
+                    reject(new LinearHttpError(status, text));
+                    return;
+                  }
+                  const json: LinearResponse<T> = JSON.parse(text);
+                  if (json.errors && json.errors.length > 0) {
+                    reject(new Error(`Linear API error: ${json.errors[0].message}`));
+                    return;
+                  }
+                  if (!json.data) {
+                    reject(new Error("Linear API returned no data"));
+                    return;
+                  }
+                  resolve(json.data);
+                } catch (err) {
+                  reject(err);
                 }
-                const json: LinearResponse<T> = JSON.parse(text);
-                if (json.errors && json.errors.length > 0) {
-                  reject(new Error(`Linear API error: ${json.errors[0].message}`));
-                  return;
-                }
-                if (!json.data) {
-                  reject(new Error("Linear API returned no data"));
-                  return;
-                }
-                resolve(json.data);
-              } catch (err) {
-                reject(err);
-              }
+              });
             });
-          });
-        },
-      );
+          },
+        );
 
-      req.setTimeout(30_000, () => {
-        settle(() => {
-          req.destroy();
-          reject(new Error("Linear API request timed out after 30s"));
+        req.setTimeout(30_000, () => {
+          settle(() => {
+            req.destroy();
+            reject(new Error("Linear API request timed out after 30s"));
+          });
         });
+
+        req.on("error", (err) => settle(() => reject(err)));
+        req.write(body);
+        req.end();
       });
 
-      req.on("error", (err) => settle(() => reject(err)));
-      req.write(body);
-      req.end();
-    });
+    for (let attempt = 1; attempt <= DIRECT_TRANSPORT_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await execute();
+      } catch (err) {
+        const shouldRetry =
+          err instanceof LinearHttpError &&
+          err.transient &&
+          attempt < DIRECT_TRANSPORT_MAX_ATTEMPTS;
+        if (!shouldRetry) throw err;
+        await sleep(DIRECT_TRANSPORT_RETRY_DELAY_MS * attempt);
+      }
+    }
+
+    throw new Error("unreachable");
   };
 }
 

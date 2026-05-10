@@ -54,9 +54,9 @@ describe("platform executable resolution", () => {
     Object.defineProperty(process, "platform", { value: platform });
     vi.resetModules();
     vi.doMock("node:fs", async () => {
-      const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+      const actual = await vi.importActual("node:fs");
       return {
-        ...actual,
+        ...(actual as Record<string, unknown>),
         existsSync: (path: string) => existingPaths.has(path),
       };
     });

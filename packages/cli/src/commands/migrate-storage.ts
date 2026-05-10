@@ -13,6 +13,18 @@ export function registerMigrateStorage(program: Command): void {
     .option("--rollback", "Reverse a previous migration (restores .migrated directories)")
     .action(
       async (opts: { dryRun?: boolean; force?: boolean; rollback?: boolean }) => {
+        recordActivityEvent({
+          source: "cli",
+          kind: "cli.migration_invoked",
+          level: "info",
+          summary: `storage ${opts.rollback ? "rollback" : "migration"} invoked`,
+          data: {
+            rollback: opts.rollback === true,
+            dryRun: opts.dryRun === true,
+            force: opts.force === true,
+          },
+        });
+
         try {
           if (opts.rollback) {
             await rollbackStorage({

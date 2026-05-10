@@ -52,6 +52,28 @@ describe("ao migrate-storage — activity events", () => {
     consoleLogSpy.mockRestore();
   });
 
+  it("emits cli.migration_invoked before migration work starts", async () => {
+    mockMigrateStorage.mockImplementation(async () => {
+      expect(recordedEvents()).toContainEqual(
+        expect.objectContaining({
+          kind: "cli.migration_invoked",
+          source: "cli",
+          level: "info",
+          data: expect.objectContaining({
+            rollback: false,
+            dryRun: true,
+            force: true,
+          }),
+        }),
+      );
+      return { projects: 1 };
+    });
+
+    await program.parseAsync(["node", "ao", "migrate-storage", "--dry-run", "--force"]);
+
+    expect(mockMigrateStorage).toHaveBeenCalledOnce();
+  });
+
   it("emits cli.migration_failed when migrateStorage throws", async () => {
     mockMigrateStorage.mockRejectedValue(new Error("disk full"));
 

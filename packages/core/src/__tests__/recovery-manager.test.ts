@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { runRecovery } from "../recovery/manager.js";
+import { recoverSessionById, runRecovery } from "../recovery/manager.js";
 import { recordActivityEvent } from "../activity-events.js";
 import { getProjectDir, getProjectSessionsDir } from "../paths.js";
 import {
@@ -183,6 +183,55 @@ describe("runRecovery activity events", () => {
         data: expect.objectContaining({
           action: "recover",
           errorMessage: "worktree missing",
+        }),
+      }),
+    );
+  });
+
+  it("emits recovery.session_failed when single-session recovery fails", async () => {
+    vi.spyOn(validatorModule, "validateSession").mockImplementation(async (scanned) =>
+      makeAssessment(scanned.sessionId),
+    );
+
+    const failedResult: RecoveryResult = {
+      success: false,
+      sessionId: "app-2",
+      action: "recover",
+      error: "agent process missing",
+    };
+
+    vi.spyOn(actionsModule, "executeAction").mockResolvedValueOnce(failedResult);
+
+    const config = makeConfig(rootDir);
+    const registry = makeRegistry();
+
+    const result = await recoverSessionById("app-2", {
+      config,
+      registry,
+      recoveryConfig: {
+        ...DEFAULT_RECOVERY_CONFIG,
+        logPath: join(rootDir, "recovery.log"),
+      },
+    });
+
+    expect(result).toEqual(failedResult);
+
+    const emitCalls = vi
+      .mocked(recordActivityEvent)
+      .mock.calls.map((c) => c[0])
+      .filter((e) => e.kind === "recovery.session_failed");
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0]).toEqual(
+      expect.objectContaining({
+        sessionId: "app-2",
+        projectId: PROJECT_ID,
+        source: "recovery",
+        kind: "recovery.session_failed",
+        level: "error",
+        data: expect.objectContaining({
+          action: "recover",
+          errorMessage: "agent process missing",
         }),
       }),
     );

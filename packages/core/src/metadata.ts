@@ -372,7 +372,7 @@ export function mutateMetadata(
           // Truncate the bad-JSON sample to 200 chars (B11 invariant — full file
           // could be 16KB+ and would be dropped by the sanitizer cap).
           const contentSample =
-            content.length > 200 ? `${content.slice(0, 200)}` : content;
+            content.length > 200 ? content.slice(0, 200) : content;
           // dataDir is `.../projects/{projectId}/sessions`; recover projectId for filtering.
           const inferredProjectId = basename(dirname(dataDir));
           const summary = renamed

@@ -516,6 +516,17 @@ describe("update command", () => {
       mockCheckForUpdate.mockResolvedValue(makeNpmUpdateInfo({ installMethod: "npm-global" }));
       Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
       Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+      // The guard now ALWAYS loads from global config. Stage a registered
+      // project so the early-return ("no registry → allow") doesn't fire.
+      mockExistsSync.mockReturnValue(true);
+      mockLoadGlobalConfig.mockReturnValue({
+        projects: { "my-app": { path: "/tmp/foo" } },
+      });
+      mockLoadConfig.mockImplementation((path?: string) =>
+        path
+          ? { projects: { "my-app": { path: "/tmp/foo" } }, configPath: path }
+          : { projects: { "my-app": { path: "/tmp/foo" } }, configPath: "/cwd/agent-orchestrator.yaml" },
+      );
     });
 
     it("refuses to install when a session is in 'working'", async () => {
@@ -552,11 +563,51 @@ describe("update command", () => {
     });
 
     // ---------------------------------------------------------------------
-    // Global-config layout (review #3)
+    // Global-config layout (review #3 / scope-gap follow-up)
     // ---------------------------------------------------------------------
 
-    it("falls back to the global registry when running outside any project", async () => {
-      // Simulate `ao update` invoked from /tmp with no project-local config.
+    it("always loads global config (never project-local), so sessions in OTHER projects fire the guard", async () => {
+      // Simulate running inside a project: project-local loadConfig() would
+      // succeed and return only THIS project's sessions. The guard must
+      // ignore it and still consult the global registry, otherwise active
+      // sessions in other projects get missed and the install would proceed.
+      mockLoadConfig.mockImplementation((path?: string) => {
+        if (!path) {
+          // Project-local: would return only "this-project"'s sessions.
+          return { projects: { "this-project": {} }, configPath: "/cwd/agent-orchestrator.yaml" };
+        }
+        return {
+          projects: {
+            "this-project": { path: "/cwd" },
+            "other-project": { path: "/other" },
+          },
+          configPath: path,
+        };
+      });
+      mockLoadGlobalConfig.mockReturnValue({
+        projects: {
+          "this-project": { path: "/cwd" },
+          "other-project": { path: "/other" },
+        },
+      });
+      mockExistsSync.mockReturnValue(true);
+      // Active session lives in the OTHER project — only visible via global.
+      mockSessions.value = [
+        { id: "other-1", status: "working" },
+      ];
+
+      await expect(
+        program.parseAsync(["node", "test", "update"]),
+      ).rejects.toThrow("process.exit(1)");
+
+      expect(mockLoadGlobalConfig).toHaveBeenCalled();
+      // Critical: we did NOT call the project-local (no-arg) loadConfig path.
+      const noArgCalls = mockLoadConfig.mock.calls.filter((c) => c.length === 0);
+      expect(noArgCalls).toHaveLength(0);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it("uses the global registry when running outside any project", async () => {
       mockLoadConfig.mockImplementation((path?: string) => {
         if (!path) throw new Error("no config found");
         return { projects: { "my-app": { path: "/tmp/foo" } }, configPath: path };
@@ -571,7 +622,6 @@ describe("update command", () => {
         program.parseAsync(["node", "test", "update"]),
       ).rejects.toThrow("process.exit(1)");
 
-      // Saw the global-projects map → built SessionManager → guard fired.
       expect(mockLoadGlobalConfig).toHaveBeenCalled();
       expect(mockSpawn).not.toHaveBeenCalled();
     });

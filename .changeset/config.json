@@ -30,7 +30,8 @@
       "@aoagents/ao-plugin-notifier-discord",
       "@aoagents/ao-plugin-notifier-openclaw",
       "@aoagents/ao-plugin-terminal-iterm2",
-      "@aoagents/ao-plugin-terminal-web"
+      "@aoagents/ao-plugin-terminal-web",
+      "@aoagents/ao-web"
     ]
   ],
   "snapshot": {
@@ -40,5 +41,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@aoagents/ao-integration-tests", "@aoagents/ao-web"]
+  "ignore": ["@aoagents/ao-integration-tests"]
 }

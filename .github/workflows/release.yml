@@ -45,6 +45,11 @@ jobs:
       - run: echo "HUSKY=0" >> $GITHUB_ENV
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
+      # Pre-publish guard: catches the case where a publishable package has a
+      # workspace:* runtime dep on a `private: true` package — pnpm would
+      # rewrite the dep on publish to a version that doesn't exist on npm,
+      # breaking `npm install -g @aoagents/ao`.
+      - run: node scripts/check-publishable-deps.mjs
       - uses: changesets/action@v1
         with:
           publish: pnpm changeset publish

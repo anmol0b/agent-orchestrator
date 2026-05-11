@@ -321,8 +321,15 @@ export function readCachedUpdateInfo(
     if (!data.installMethod) return null;
     if (data.installMethod !== installMethod) return null;
 
-    // Channel mismatch — the cached entry is for a different dist-tag.
-    if (channel && data.channel && data.channel !== channel) return null;
+    // Channel scoping. When the caller passes an explicit channel, the cache
+    // entry MUST advertise its own channel and that channel MUST match. A
+    // legacy entry without a `channel` field (written before channel scoping
+    // landed) is treated as a miss — otherwise a stable→nightly switch would
+    // keep returning the pre-switch latestVersion until the TTL expired.
+    if (channel) {
+      if (!data.channel) return null;
+      if (data.channel !== channel) return null;
+    }
 
     // Cache is stale if user upgraded since the check
     const currentVersion = getCurrentVersion();

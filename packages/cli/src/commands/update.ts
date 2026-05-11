@@ -122,32 +122,31 @@ async function handleCheck(): Promise<void> {
 async function ensureNoActiveSessions(): Promise<boolean> {
   let sessions: Session[];
   try {
-    let config;
-    try {
-      // Project-local config (search-upward) — works when `ao update` runs
-      // inside a registered project.
-      config = loadConfig();
-    } catch {
-      // Outside any project — fall back to the global registry so `ao update`
-      // works from any cwd. We deliberately go through `loadGlobalConfig`
-      // first to check the registry layout (the global schema is different
-      // from a project config); only when projects are registered do we ask
-      // `loadConfig` to build a full OrchestratorConfig from the canonical
-      // global path. `loadConfig` dispatches to `buildEffectiveConfigFromGlobalConfigPath`
-      // when given that path — see packages/core/src/config.ts.
-      const globalPath = getGlobalConfigPath();
-      if (!existsSync(globalPath)) return true; // No registry ⇒ nothing to guard.
-      const globalConfig = loadGlobalConfig(globalPath);
-      if (!globalConfig || Object.keys(globalConfig.projects).length === 0) {
-        return true; // Registry has no projects ⇒ no sessions to guard.
-      }
-      if (!isCanonicalGlobalConfigPath(globalPath)) {
-        // Defensive: if someone overrode AO_GLOBAL_CONFIG to a non-canonical
-        // path, loadConfig would treat the file as a project config. Bail.
-        return true;
-      }
-      config = loadConfig(globalPath);
+    // ALWAYS load the global registry, never project-local config.
+    //
+    // `ao update` replaces the binary that supervises every registered project,
+    // so the guard must see active sessions across all of them. If we loaded
+    // the project-local config when run inside a repo, sm.list() would only
+    // enumerate that project's sessions and we'd let the install proceed
+    // even though another project has work in flight.
+    //
+    // When the global config doesn't exist yet (fresh install before any
+    // `ao start`), there are no registered projects so the guard short-
+    // circuits to "allow."
+    const globalPath = getGlobalConfigPath();
+    if (!existsSync(globalPath)) return true;
+    const globalConfig = loadGlobalConfig(globalPath);
+    if (!globalConfig || Object.keys(globalConfig.projects).length === 0) {
+      return true;
     }
+    if (!isCanonicalGlobalConfigPath(globalPath)) {
+      // Defensive: if someone overrode AO_GLOBAL_CONFIG to a non-canonical
+      // path, loadConfig would treat the file as a project config. Bail.
+      return true;
+    }
+    // loadConfig dispatches to buildEffectiveConfigFromGlobalConfigPath when
+    // given the canonical global path — see packages/core/src/config.ts.
+    const config = loadConfig(globalPath);
     const sm = await getSessionManager(config);
     sessions = await sm.list();
   } catch {

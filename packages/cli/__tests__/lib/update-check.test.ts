@@ -695,6 +695,10 @@ describe("update-check", () => {
           checkedAt: now,
           currentVersionAtCheck: currentVersion,
           installMethod: "npm-global",
+          // Must match the active channel (nightly via the suite-level
+          // beforeEach) or the new "treat missing channel as miss when
+          // channel is provided" guard would reject the cache entry.
+          channel: "nightly",
         }),
       );
       mockExistsSync.mockReturnValue(false);
@@ -824,6 +828,7 @@ describe("update-check", () => {
             checkedAt: new Date().toISOString(),
             currentVersionAtCheck: currentVersion,
             installMethod: "npm-global",
+            channel: "nightly", // matches the suite-level beforeEach
           });
         }
         return JSON.stringify({ name: "not-ao" });
@@ -886,6 +891,7 @@ describe("update-check", () => {
             checkedAt: new Date().toISOString(),
             currentVersionAtCheck: currentVersion,
             installMethod: "git",
+            channel: "nightly", // matches the suite-level beforeEach
             isOutdated: false,
             currentRevisionAtCheck: "abc",
             latestRevisionAtCheck: "abc",
@@ -976,6 +982,7 @@ describe("update-check", () => {
           checkedAt: new Date().toISOString(),
           currentVersionAtCheck: currentVersion,
           installMethod: "unknown",
+          channel: "stable",
         }),
       );
 
@@ -1003,6 +1010,7 @@ describe("update-check", () => {
             checkedAt: new Date().toISOString(),
             currentVersionAtCheck: currentVersion,
             installMethod: "git",
+            channel: "stable",
             isOutdated: true,
             currentRevisionAtCheck: "local",
           });
@@ -1226,6 +1234,7 @@ describe("update-check", () => {
           latestVersion: "0.3.0",
           checkedAt: now,
           currentVersionAtCheck: getCurrentVersion(),
+          installMethod: "npm-global",
           channel: "stable",
         }),
       );
@@ -1234,7 +1243,33 @@ describe("update-check", () => {
         json: async () => ({ "dist-tags": { latest: "0.3.0", nightly: "0.5.0-nightly-x" } }),
       });
 
-      const info = await checkForUpdate();
+      const info = await checkForUpdate({ installMethod: "npm-global" });
+      expect(info.latestVersion).toBe("0.5.0-nightly-x");
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    it("ignores legacy cached entries that pre-date channel scoping (no `channel` field)", async () => {
+      // A user who installed before channel scoping has a cache entry without
+      // a `channel` field. Without the explicit-channel guard, that entry
+      // would pass the mismatch check (`channel && data.channel && ...`
+      // short-circuits on `!data.channel`) and we'd return stale stable
+      // version info after the user switched to nightly. Force a refresh.
+      mockGlobalConfig.value = { updateChannel: "nightly" };
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          latestVersion: "0.3.0",
+          checkedAt: new Date().toISOString(),
+          currentVersionAtCheck: getCurrentVersion(),
+          installMethod: "npm-global",
+          // no `channel` field — legacy
+        }),
+      );
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ "dist-tags": { latest: "0.3.0", nightly: "0.5.0-nightly-x" } }),
+      });
+
+      const info = await checkForUpdate({ installMethod: "npm-global" });
       expect(info.latestVersion).toBe("0.5.0-nightly-x");
       expect(mockFetch).toHaveBeenCalled();
     });

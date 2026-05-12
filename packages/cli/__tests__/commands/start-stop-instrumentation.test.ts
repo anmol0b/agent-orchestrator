@@ -33,6 +33,9 @@ const {
   mockClearLastStop,
   mockAcquireStartupLock,
   mockIsAlreadyRunning,
+  mockFindPidByPort,
+  mockKillProcessTree,
+  mockIsWindows,
 } = vi.hoisted(() => ({
   mockSessionManager: {
     list: vi.fn(),
@@ -48,6 +51,9 @@ const {
   mockClearLastStop: vi.fn(),
   mockAcquireStartupLock: vi.fn(),
   mockIsAlreadyRunning: vi.fn(),
+  mockFindPidByPort: vi.fn(),
+  mockKillProcessTree: vi.fn(),
+  mockIsWindows: vi.fn(),
 }));
 
 vi.mock("@aoagents/ao-core", async (importOriginal) => {
@@ -55,6 +61,9 @@ vi.mock("@aoagents/ao-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
   return {
     ...actual,
+    findPidByPort: (...args: unknown[]) => mockFindPidByPort(...args),
+    isWindows: (...args: unknown[]) => mockIsWindows(...args),
+    killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
     recordActivityEvent: vi.fn(),
   };
 });
@@ -210,6 +219,12 @@ describe("ao stop — activity events", () => {
     mockUnregister.mockReset();
     mockWriteLastStop.mockReset();
     mockGetRunning.mockResolvedValue(null);
+    mockFindPidByPort.mockReset();
+    mockFindPidByPort.mockResolvedValue(null);
+    mockKillProcessTree.mockReset();
+    mockKillProcessTree.mockResolvedValue(undefined);
+    mockIsWindows.mockReset();
+    mockIsWindows.mockReturnValue(false);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -232,6 +247,9 @@ describe("ao stop — activity events", () => {
       const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
       return {
         ...actual,
+        findPidByPort: (...args: unknown[]) => mockFindPidByPort(...args),
+        isWindows: (...args: unknown[]) => mockIsWindows(...args),
+        killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
         recordActivityEvent: vi.mocked(recordActivityEvent),
         loadConfig: () => {
           throw new Error("config not found");
@@ -264,6 +282,9 @@ describe("ao stop — activity events", () => {
       const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
       return {
         ...actual,
+        findPidByPort: (...args: unknown[]) => mockFindPidByPort(...args),
+        isWindows: (...args: unknown[]) => mockIsWindows(...args),
+        killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
         recordActivityEvent: vi.mocked(recordActivityEvent),
         loadConfig: () => {
           throw new Error("config blew up");
@@ -302,13 +323,14 @@ describe("ao stop — activity events", () => {
     });
     mockSessionManager.list.mockResolvedValue([]);
 
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-
     vi.doMock("@aoagents/ao-core", async (importOriginal) => {
       // eslint-disable-next-line @typescript-eslint/consistent-type-imports
       const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
       return {
         ...actual,
+        findPidByPort: (...args: unknown[]) => mockFindPidByPort(...args),
+        isWindows: (...args: unknown[]) => mockIsWindows(...args),
+        killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
         recordActivityEvent: vi.mocked(recordActivityEvent),
         loadConfig: () => ({
           configPath: "/tmp/x.yaml",
@@ -339,8 +361,8 @@ describe("ao stop — activity events", () => {
         data: expect.objectContaining({ pid: 99999 }),
       }),
     );
+    expect(mockKillProcessTree).toHaveBeenCalledWith(99999, "SIGTERM");
 
-    killSpy.mockRestore();
     vi.doUnmock("@aoagents/ao-core");
   });
 
@@ -367,6 +389,9 @@ describe("ao stop — activity events", () => {
       const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
       return {
         ...actual,
+        findPidByPort: (...args: unknown[]) => mockFindPidByPort(...args),
+        isWindows: (...args: unknown[]) => mockIsWindows(...args),
+        killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
         recordActivityEvent: vi.mocked(recordActivityEvent),
         loadConfig: () => ({
           configPath: "/tmp/x.yaml",
@@ -422,6 +447,9 @@ describe("ao stop — activity events", () => {
       const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
       return {
         ...actual,
+        findPidByPort: (...args: unknown[]) => mockFindPidByPort(...args),
+        isWindows: (...args: unknown[]) => mockIsWindows(...args),
+        killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
         recordActivityEvent: vi.mocked(recordActivityEvent),
         loadConfig: () => ({
           configPath: "/tmp/x.yaml",

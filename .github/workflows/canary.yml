@@ -1,10 +1,19 @@
 name: Canary
 
-# Nightly canary publishes the current tip of `main` to npm under @nightly.
+# Two-repo release pipeline (nightly canary side).
+#
+# Nightly canary publishes the current tip of `main` to npm under
+# @nightly. This public workflow only handles snapshot versioning,
+# tagging, and the GitHub prerelease. The actual `npm publish` runs in
+# the private ComposioHQ/ao-publisher repo, dispatched at the end. See
+# CONTRIBUTING.md → "Release architecture" for full context — the only
+# secret needed here is PUBLISHER_DISPATCH_TOKEN.
+#
 # Cron schedule: 23:30 IST = 18:00 UTC, on Fri,Sat,Sun,Mon,Tue
 # (DOW 5,6,0,1,2). Wed/Thu are the bake window — no scheduled publishes.
-# `workflow_dispatch` lets the release captain re-cut a nightly during bake
-# when a fix lands and the Discord cohort should test the patched candidate.
+# `workflow_dispatch` lets the release captain re-cut a nightly during
+# bake when a fix lands and the Discord cohort should test the patched
+# candidate.
 on:
   schedule:
     - cron: "0 18 * * 5,6,0,1,2"
@@ -15,7 +24,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
+  # id-token retained as a no-op for forward compatibility; npm
+  # provenance now lives in ao-publisher.
   id-token: write
 
 jobs:
@@ -29,24 +40,55 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      # Skip-if-unchanged guard: if the most recent GitHub release in this
+      # repo already points at the current tip of main, there's nothing
+      # new to publish — short-circuit the whole job. Prevents republishing
+      # the same SHA on every cron tick during quiet stretches (and keeps
+      # the npm version list from filling with identical nightlies).
+      - name: Check if main has new commits since the last release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""')
+          LAST_SHA=""
+          if [ -n "$LAST_TAG" ]; then
+            LAST_SHA=$(git rev-list -n 1 "$LAST_TAG" 2>/dev/null || echo "")
+          fi
+          if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$GITHUB_SHA" ]; then
+            echo "Last release ($LAST_TAG) already points at $GITHUB_SHA — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: pnpm/action-setup@v4
+        if: steps.check.outputs.skip != 'true'
       - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip != 'true'
         with:
           node-version: 20
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+          # No `registry-url`: this workflow no longer publishes to npm.
 
-      - run: echo "HUSKY=0" >> $GITHUB_ENV
+      - if: steps.check.outputs.skip != 'true'
+        run: echo "HUSKY=0" >> $GITHUB_ENV
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.check.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
 
-      - run: pnpm -r build
+      - if: steps.check.outputs.skip != 'true'
+        run: pnpm -r build
 
-      # Pre-publish guard: same as release.yml — catches workspace:* deps on
-      # private packages before they'd silently break a published install.
-      - run: node scripts/check-publishable-deps.mjs
+      # Pre-publish guard: same as release.yml — catches workspace:* deps
+      # on private packages before they'd silently break a published
+      # install. Still runs here so the public repo blocks a malformed
+      # snapshot before handing off to the private publisher.
+      - if: steps.check.outputs.skip != 'true'
+        run: node scripts/check-publishable-deps.mjs
 
       - name: Create snapshot versions
+        if: steps.check.outputs.skip != 'true'
         run: |
           # If no changesets exist (e.g. right after a Version Packages merge),
           # create a minimal one. `changeset version --snapshot` consumes and
@@ -58,8 +100,39 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish canary
-        run: pnpm changeset publish --tag nightly --no-git-tag
+      # Tag the snapshot versions locally and push them. `pnpm changeset
+      # tag` reads each publishable package.json and creates a git tag —
+      # so the publisher repo can resolve `client_payload.tag` to a known
+      # ref and we have something to point `gh release create` at.
+      - name: Tag snapshot versions
+        id: tag
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          pnpm changeset tag
+          git push --follow-tags
+          version=$(node -p "require('./packages/ao/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Public-facing GitHub prerelease. `--prerelease` flags it as such
+      # so consumers and tooling that filter by stability stay correct.
+      - name: Create GitHub prerelease
+        if: steps.check.outputs.skip != 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.tag.outputs.version }}" \
+            --target main \
+            --prerelease \
+            --generate-notes
+
+      # Hand off to the private publisher repo with event_type=publish-npm-nightly
+      # so it publishes under the `nightly` dist-tag. PUBLISHER_DISPATCH_TOKEN
+      # is a fine-grained PAT scoped to ComposioHQ/ao-publisher only.
+      - name: Dispatch npm publish to ao-publisher
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISHER_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/ComposioHQ/ao-publisher/dispatches \
+            -f event_type=publish-npm-nightly \
+            -F client_payload[tag]=v${{ steps.tag.outputs.version }}

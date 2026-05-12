@@ -70,13 +70,56 @@ ao update
 
 `ao update` fast-forwards the local install repo, reinstalls dependencies, clean-rebuilds `@aoagents/ao-core`, `@aoagents/ao-cli`, and `@aoagents/ao-web`, refreshes the global launcher with `npm link`, and finishes with CLI smoke tests. Use `ao update --skip-smoke` when you only need the rebuild step, or `ao update --smoke-only` when validating an existing install.
 
-## Release Setup (maintainers only)
+## Release Architecture (maintainers only)
 
-The canary and stable release workflows require one secret configured in GitHub repo settings:
+AO uses a **two-repo release pipeline**. Org compliance forbids npm publish credentials in public repositories, so this repo never sees `NPM_TOKEN`.
 
-- `NPM_TOKEN` — an npm automation token with publish access to the `@aoagents` org. Add it at **Settings → Secrets and variables → Actions → New repository secret**.
+### Where things happen
 
-Without this secret, both `release.yml` and `canary.yml` will fail at the publish step.
+| Repo                                  | Visibility | Responsibility                                                                |
+| ------------------------------------- | ---------- | ----------------------------------------------------------------------------- |
+| `ComposioHQ/agent-orchestrator` (this repo) | Public  | Version bumps, git tags, GitHub releases (stable + nightly prereleases)       |
+| `ComposioHQ/ao-publisher`             | Private    | `npm publish` to the `@aoagents` org under the `latest` or `nightly` dist-tag |
+
+The flow on every release:
+
+```
+agent-orchestrator (public)                    ao-publisher (private)
+─────────────────────────────                  ──────────────────────
+.github/workflows/release.yml      ─dispatch→  receives publish-npm-stable
+  changeset version → tag → push                runs `npm publish` with NPM_TOKEN
+  gh release create vX.Y.Z
+
+.github/workflows/canary.yml       ─dispatch→  receives publish-npm-nightly
+  changeset version --snapshot                  runs `npm publish --tag nightly`
+  changeset tag → push
+  gh release create --prerelease
+```
+
+### Secret layout
+
+| Secret                       | Lives in                  | Scope                                                                |
+| ---------------------------- | ------------------------- | -------------------------------------------------------------------- |
+| `PUBLISHER_DISPATCH_TOKEN`   | this repo (Actions secret) | Fine-grained PAT, `repository_dispatch:write` on `ao-publisher` **only** |
+| `NPM_TOKEN`                  | `ao-publisher`             | npm automation token, publish access to the `@aoagents` org          |
+
+Add `PUBLISHER_DISPATCH_TOKEN` at **Settings → Secrets and variables → Actions → New repository secret**. Without it, the dispatch step in both `release.yml` and `canary.yml` fails — but version bumps and GitHub releases still go through, so the failure is recoverable by re-running the workflow after the secret is restored.
+
+### Rotation
+
+When rotating either token, only the holding repo needs to change:
+
+1. **`PUBLISHER_DISPATCH_TOKEN`** — generate a new fine-grained PAT (same scope: `repository_dispatch:write` on `ao-publisher` only), replace the secret here. No change required in `ao-publisher`.
+2. **`NPM_TOKEN`** — generate a new npm automation token, replace the secret in `ao-publisher`. No change required in this repo.
+
+The blast radius of a leaked `PUBLISHER_DISPATCH_TOKEN` is limited to "can trigger an unwanted publish workflow on `ao-publisher`"; it cannot publish to npm directly, and it cannot read or write anything else.
+
+### How releases are cut
+
+- **Stable**: merge the "chore: version packages" PR opened by `changesets/action`. `release.yml` tags the bumped packages, creates a `vX.Y.Z` GitHub release, and dispatches `publish-npm-stable` to `ao-publisher`.
+- **Nightly**: `canary.yml` runs on cron (23:30 IST Fri–Tue) or via `workflow_dispatch`. It snapshots versions to `0.0.0-nightly-<sha>`-style, tags, creates a prerelease GitHub release, and dispatches `publish-npm-nightly`.
+
+The dispatch step is the **only** way npm gets new versions — there is no path from this repo that calls `npm publish` directly.
 
 ## Testing your changes
 

@@ -1942,7 +1942,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (job.logTail) {
         const lineCount = job.logTail.split(/\r?\n/).length;
         const lineLabel = lineCount === 1 ? "line" : "lines";
-        lines.push("", `Log tail (last ${lineCount} ${lineLabel}):`, "```", job.logTail, "```");
+        const escapedTail = escapeMarkdownCodeFenceClosers(job.logTail);
+        lines.push("", `Log tail (last ${lineCount} ${lineLabel}):`, "```", escapedTail, "```");
       }
 
       lines.push("");
@@ -1950,6 +1951,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     lines.push("Fix the issues and push again.");
     return lines.join("\n");
+  }
+
+  function escapeMarkdownCodeFenceClosers(logTail: string): string {
+    return logTail
+      .split(/\r?\n/)
+      .map((line) => (line.startsWith("```") ? `\u200B${line}` : line))
+      .join("\n");
   }
 
   function formatCIFailureChecksFallback(failedChecks: CICheck[]): string {
@@ -1975,7 +1983,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   ): Promise<string> {
     if (scm.getCIFailureSummary) {
       try {
-        const summary = await scm.getCIFailureSummary(pr);
+        const summary = await scm.getCIFailureSummary(pr, failedChecks);
         if (summary?.failedJobs.length) {
           return formatCIFailureSummaryMessage(summary);
         }

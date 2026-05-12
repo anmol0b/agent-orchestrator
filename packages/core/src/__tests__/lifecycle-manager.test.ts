@@ -2392,7 +2392,7 @@ describe("reactions", () => {
             failedStep: "Run pnpm test",
             runUrl: "https://github.com/org/repo/actions/runs/123/job/456",
             logTail:
-              "AssertionError: expected true to be false\nProcess completed with exit code 1",
+              "AssertionError: expected true to be false\n```\nProcess completed with exit code 1",
           },
         ],
       }),
@@ -2417,9 +2417,11 @@ describe("reactions", () => {
     expect(sentMessage).toContain("CI is failing on your PR.");
     expect(sentMessage).toContain("Failed: build → Run pnpm test");
     expect(sentMessage).toContain("Run: https://github.com/org/repo/actions/runs/123/job/456");
-    expect(sentMessage).toContain("Log tail (last 2 lines):");
+    expect(sentMessage).toContain("Log tail (last 3 lines):");
     expect(sentMessage).toContain("AssertionError: expected true to be false");
+    expect(sentMessage).toContain("\u200B```");
     expect(sentMessage).toContain("Fix the issues and push again.");
+    expect(mockSCM.getCIFailureSummary).toHaveBeenCalledWith(makePR(), ciChecks);
   });
 
   it("falls back to check names and URLs when SCM lacks getCIFailureSummary", async () => {

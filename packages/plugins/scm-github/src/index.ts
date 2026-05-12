@@ -212,12 +212,13 @@ function tailLines(text: string, maxLines: number): string | undefined {
 }
 
 function extractFailedStep(log: string): string | undefined {
+  let lastStep: string | undefined;
   for (const line of log.split(/\r?\n/)) {
     const parts = line.split("\t");
     const step = parts.length >= 3 ? parts[1]?.trim() : undefined;
-    if (step) return step;
+    if (step) lastStep = step;
   }
-  return undefined;
+  return lastStep;
 }
 
 async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
@@ -864,10 +865,14 @@ function createGitHubSCM(): SCM {
       });
     },
 
-    async getCIFailureSummary(pr: PRInfo): Promise<CIFailureSummary | null> {
+    async getCIFailureSummary(
+      pr: PRInfo,
+      providedFailedChecks?: CICheck[],
+    ): Promise<CIFailureSummary | null> {
       try {
-        const checks = await this.getCIChecks(pr);
-        const failedChecks = checks.filter(isFailedCheck);
+        const failedChecks = (providedFailedChecks ?? (await this.getCIChecks(pr))).filter(
+          isFailedCheck,
+        );
         if (failedChecks.length === 0) return null;
 
         const failedJobs: CIFailureSummary["failedJobs"] = [];

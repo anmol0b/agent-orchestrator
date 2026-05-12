@@ -651,25 +651,30 @@ describe("scm-github plugin", () => {
 
   describe("getCIFailureSummary", () => {
     it("returns failed job step and caps the failed log tail", async () => {
-      mockGh([
+      const checks = [
         {
           name: "build",
-          state: "FAILURE",
-          link: "https://github.com/acme/repo/actions/runs/123/job/456",
+          status: "failed" as const,
+          conclusion: "FAILURE",
+          url: "https://github.com/acme/repo/actions/runs/123/job/456",
         },
         {
           name: "lint",
-          state: "SUCCESS",
-          link: "https://github.com/acme/repo/actions/runs/124/job/457",
+          status: "passed" as const,
+          conclusion: "SUCCESS",
+          url: "https://github.com/acme/repo/actions/runs/124/job/457",
         },
-      ]);
+      ];
       const logLines = Array.from(
         { length: 125 },
-        (_, index) => `build\tRun pnpm test\t2026-05-12T00:00:00Z line ${index + 1}`,
+        (_, index) => {
+          const step = index < 100 ? "Install dependencies" : "Run pnpm test";
+          return `build\t${step}\t2026-05-12T00:00:00Z line ${index + 1}`;
+        },
       );
       mockGhRaw(logLines.join("\n"));
 
-      const summary = await scm.getCIFailureSummary?.(pr);
+      const summary = await scm.getCIFailureSummary?.(pr, checks);
 
       expect(summary?.failedJobs).toHaveLength(1);
       expect(summary?.failedJobs[0]).toEqual({
@@ -686,19 +691,21 @@ describe("scm-github plugin", () => {
         ["run", "view", "123", "--repo", "acme/repo", "--log-failed", "--job", "456"],
         expect.any(Object),
       );
+      expect(ghMock).toHaveBeenCalledTimes(1);
     });
 
     it("returns null when failed-log fetch fails", async () => {
-      mockGh([
+      const checks = [
         {
           name: "build",
-          state: "FAILURE",
-          link: "https://github.com/acme/repo/actions/runs/123/job/456",
+          status: "failed" as const,
+          conclusion: "FAILURE",
+          url: "https://github.com/acme/repo/actions/runs/123/job/456",
         },
-      ]);
+      ];
       mockGhError("run view failed");
 
-      await expect(scm.getCIFailureSummary?.(pr)).resolves.toBeNull();
+      await expect(scm.getCIFailureSummary?.(pr, checks)).resolves.toBeNull();
     });
   });
 

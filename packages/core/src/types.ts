@@ -829,7 +829,7 @@ export interface SCM {
   getCIChecks(pr: PRInfo): Promise<CICheck[]>;
 
   /** Get failed CI jobs/steps with a bounded failed-log tail, if supported. */
-  getCIFailureSummary?(pr: PRInfo): Promise<CIFailureSummary | null>;
+  getCIFailureSummary?(pr: PRInfo, failedChecks?: CICheck[]): Promise<CIFailureSummary | null>;
 
   /** Get overall CI summary */
   getCISummary(pr: PRInfo): Promise<CIStatus>;

@@ -647,6 +647,61 @@ describe("scm-github plugin", () => {
     });
   });
 
+  // ---- getCIFailureSummary -----------------------------------------------
+
+  describe("getCIFailureSummary", () => {
+    it("returns failed job step and caps the failed log tail", async () => {
+      mockGh([
+        {
+          name: "build",
+          state: "FAILURE",
+          link: "https://github.com/acme/repo/actions/runs/123/job/456",
+        },
+        {
+          name: "lint",
+          state: "SUCCESS",
+          link: "https://github.com/acme/repo/actions/runs/124/job/457",
+        },
+      ]);
+      const logLines = Array.from(
+        { length: 125 },
+        (_, index) => `build\tRun pnpm test\t2026-05-12T00:00:00Z line ${index + 1}`,
+      );
+      mockGhRaw(logLines.join("\n"));
+
+      const summary = await scm.getCIFailureSummary?.(pr);
+
+      expect(summary?.failedJobs).toHaveLength(1);
+      expect(summary?.failedJobs[0]).toEqual({
+        name: "build",
+        failedStep: "Run pnpm test",
+        runUrl: "https://github.com/acme/repo/actions/runs/123/job/456",
+        logTail: logLines.slice(-120).join("\n"),
+      });
+      expect(summary?.failedJobs[0]?.logTail?.split("\n")).toHaveLength(120);
+      expect(summary?.failedJobs[0]?.logTail?.split("\n")[0]).toContain("line 6");
+      expect(summary?.failedJobs[0]?.logTail).toContain("line 125");
+      expect(ghMock).toHaveBeenLastCalledWith(
+        expect.stringMatching(/(?:^|[\\/])gh(?:\.(?:exe|cmd|bat))?$/i),
+        ["run", "view", "123", "--repo", "acme/repo", "--log-failed", "--job", "456"],
+        expect.any(Object),
+      );
+    });
+
+    it("returns null when failed-log fetch fails", async () => {
+      mockGh([
+        {
+          name: "build",
+          state: "FAILURE",
+          link: "https://github.com/acme/repo/actions/runs/123/job/456",
+        },
+      ]);
+      mockGhError("run view failed");
+
+      await expect(scm.getCIFailureSummary?.(pr)).resolves.toBeNull();
+    });
+  });
+
   // ---- getCISummary ------------------------------------------------------
 
   describe("getCISummary", () => {

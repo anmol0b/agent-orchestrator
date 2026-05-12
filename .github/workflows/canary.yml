@@ -56,11 +56,24 @@ jobs:
       # at the main HEAD it was cut from. The snapshot commit's first
       # parent is the source main HEAD, so `${LAST_TAG}^` is the right
       # anchor to compare against `GITHUB_SHA` (main HEAD at this run).
+      #
+      # `workflow_dispatch` always proceeds — recovery path for partial
+      # failures (tag pushed, then `gh release create` or dispatch
+      # failed). A human triggered the run, they want it to run. The
+      # cron-driven path still dedupes via the SHA check above; the
+      # downstream tag-push and release-create steps are individually
+      # safe against existing remote state.
       - name: Check if main has new commits since the last nightly
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            echo 'Manual trigger via workflow_dispatch — bypassing skip guard.'
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           LAST_TAG=$(gh release list --json tagName,isPrerelease --jq '[.[] | select(.isPrerelease)][0].tagName // empty')
           LAST_SHA=""
           if [ -n "$LAST_TAG" ]; then

@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import chalk from "chalk";
 import {
+  createDefaultGlobalConfig,
   getGlobalConfigPath,
   loadGlobalConfig,
   saveGlobalConfig,
@@ -53,8 +54,10 @@ export function hasChosenUpdateChannel(): boolean {
 
 /**
  * Persist the chosen channel to the global config.
- * Loads existing config (or creates a new one via `createDefaultGlobalConfig`)
- * and writes the field.
+ *
+ * No-op when the global config doesn't exist — autoCreateConfig() handles
+ * bootstrap during first run. When the file exists but can't be parsed,
+ * falls back to a fresh default config.
  */
 export function persistUpdateChannel(channel: UpdateChannel): void {
   const path = getGlobalConfigPath();
@@ -63,7 +66,7 @@ export function persistUpdateChannel(channel: UpdateChannel): void {
   // husk poisons the dashboard, which loads the global config and finds
   // zero projects.
   if (!existsSync(path)) return;
-  const existing = loadGlobalConfig(path);
+  const existing = loadGlobalConfig(path) ?? createDefaultGlobalConfig();
   const next: GlobalConfig = { ...existing, updateChannel: channel };
   saveGlobalConfig(next, path);
 }

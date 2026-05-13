@@ -51,6 +51,7 @@ const DEFAULT_TOOL_VERSION: Partial<Record<ComposioApp, string>> = {
 
 const VALID_APPS = new Set<string>(["slack", "discord", "gmail"]);
 const VALID_DISCORD_MODES = new Set<string>(["webhook", "bot"]);
+const DEFAULT_COMPOSIO_USER_ID = "ao-agent";
 
 const GMAIL_SUBJECT = "Agent Orchestrator Notification";
 const DISCORD_WEBHOOK_TOOL_SLUG = "DISCORDBOT_EXECUTE_WEBHOOK";
@@ -352,7 +353,7 @@ export function create(config?: Record<string, unknown>): Notifier {
     stringConfig(config, "entityId") ??
     process.env.COMPOSIO_USER_ID ??
     process.env.COMPOSIO_ENTITY_ID ??
-    "ao-local";
+    DEFAULT_COMPOSIO_USER_ID;
   const emailTo = stringConfig(config, "emailTo");
   const toolVersion = resolveToolVersion(config, defaultApp);
   const forceSkipVersionCheck = boolConfig(config, "dangerouslySkipVersionCheck");

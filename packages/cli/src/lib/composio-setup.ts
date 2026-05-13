@@ -22,11 +22,13 @@ const COMPOSIO_SLACK_NOTIFIER = "composio-slack";
 const COMPOSIO_DISCORD_WEBHOOK_NOTIFIER = "composio-discord";
 const COMPOSIO_DISCORD_BOT_NOTIFIER = "composio-discord-bot";
 const COMPOSIO_MAIL_NOTIFIER = "composio-mail";
+const DEFAULT_COMPOSIO_USER_ID = "ao-agent";
 const GMAIL_SEND_TOOL = "GMAIL_SEND_EMAIL";
 const COMPOSIO_DASHBOARD_URL = "https://app.composio.dev";
 const DISCORD_APP_URL = "https://discord.com/app";
 const DISCORD_DEVELOPER_PORTAL_URL = "https://discord.com/developers/applications";
-const DISCORD_WEBHOOK_DOCS_URL = "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks";
+const DISCORD_WEBHOOK_DOCS_URL =
+  "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks";
 
 export class ComposioSetupError extends Error {
   constructor(
@@ -208,7 +210,9 @@ function asStringArray(value: unknown): string[] {
   return [];
 }
 
-function resolveComposioRoutingPreset(value: string | undefined): NotifierRoutingPreset | undefined {
+function resolveComposioRoutingPreset(
+  value: string | undefined,
+): NotifierRoutingPreset | undefined {
   try {
     return resolveRoutingPresetOption(value, "Composio") as NotifierRoutingPreset | undefined;
   } catch (error) {
@@ -298,7 +302,7 @@ function resolveUserId(opts: { userId?: string }, existing: Record<string, unkno
     stringValue(existing["entityId"]) ??
     stringValue(process.env.COMPOSIO_USER_ID) ??
     stringValue(process.env.COMPOSIO_ENTITY_ID) ??
-    "ao-local"
+    DEFAULT_COMPOSIO_USER_ID
   );
 }
 
@@ -1001,10 +1005,7 @@ function printDiscordChannelIdInstructions(): void {
   console.log("");
 }
 
-function printComposioDiscordBotReview(
-  resolved: ResolvedDiscordSetup,
-  apiKeySource: string,
-): void {
+function printComposioDiscordBotReview(resolved: ResolvedDiscordSetup, apiKeySource: string): void {
   console.log("");
   console.log(chalk.bold("Review Composio Discord bot setup"));
   console.log("  app: Discord bot");
@@ -1170,7 +1171,7 @@ async function promptInteractiveComposioUserId(
   const currentUserId = resolveUserId(opts, existing);
   console.log(
     chalk.dim(
-      "userId is the Composio user namespace AO uses for tool execution and connected-account lookup. For local setups, ao-local is fine.",
+      `userId is the Composio user namespace AO uses for tool execution and connected-account lookup. For AO-managed setups, ${DEFAULT_COMPOSIO_USER_ID} is the recommended default.`,
     ),
   );
 
@@ -1439,7 +1440,9 @@ async function promptInteractiveSlackChannel(
   existing: Record<string, unknown>,
 ): Promise<string | undefined | "back"> {
   const existingChannel =
-    stringValue(opts.channel) ?? stringValue(existing["channelName"]) ?? stringValue(existing["channelId"]);
+    stringValue(opts.channel) ??
+    stringValue(existing["channelName"]) ??
+    stringValue(existing["channelId"]);
   printComposioSlackChannelInfo();
 
   while (true) {
@@ -2091,7 +2094,11 @@ async function promptManualGmailConnectedAccountId(
   }
 
   try {
-    const account = await verifyUsableGmailConnectedAccount(client, userId, String(accountId).trim());
+    const account = await verifyUsableGmailConnectedAccount(
+      client,
+      userId,
+      String(accountId).trim(),
+    );
     return account.id;
   } catch (error) {
     console.log(chalk.yellow(error instanceof Error ? error.message : String(error)));
@@ -2171,7 +2178,9 @@ async function listGmailAuthConfigs(client: ComposioSetupClient): Promise<AuthCo
       "Composio SDK client does not expose authConfigs.list(); enter a Gmail authConfigId manually.",
     );
   }
-  return authConfigsFromListResult(await client.authConfigs.list({ toolkit: GMAIL_TOOLKIT })).filter(
+  return authConfigsFromListResult(
+    await client.authConfigs.list({ toolkit: GMAIL_TOOLKIT }),
+  ).filter(
     (config) => !config.toolkit?.slug || config.toolkit.slug.toLowerCase() === GMAIL_TOOLKIT,
   );
 }
@@ -2806,9 +2815,7 @@ async function runInteractiveComposioDiscordWebhookSetup(
     writeComposioDiscordConfig(configPath, resolved);
     console.log(chalk.green(`✓ Config written to ${configPath}`));
     console.log(chalk.green("✓ Discord webhook configured through Composio"));
-    console.log(
-      chalk.dim(`Test it with: ao notify test --to ${targetName} --template basic`),
-    );
+    console.log(chalk.dim(`Test it with: ao notify test --to ${targetName} --template basic`));
     clack.outro("Composio Discord webhook setup complete.");
     return "done";
   }
@@ -2828,7 +2835,7 @@ async function runInteractiveComposioDiscordBotSetup(
   const existingChannelId =
     stringValue(opts.channelId) ?? (existingIsBot ? stringValue(existing["channelId"]) : undefined);
   const existingConnectedAccountId = existingIsBot
-    ? stringValue(opts.connectedAccountId) ?? stringValue(existing["connectedAccountId"])
+    ? (stringValue(opts.connectedAccountId) ?? stringValue(existing["connectedAccountId"]))
     : stringValue(opts.connectedAccountId);
   const optionBotToken = stringValue(opts.botToken);
   const canReplace = await confirmComposioDiscordWebhookConflict(
@@ -2897,7 +2904,8 @@ async function runInteractiveComposioDiscordBotSetup(
         client,
         userId,
         channelId,
-        connectedAccountId ?? (channelId === existingChannelId ? existingConnectedAccountId : undefined),
+        connectedAccountId ??
+          (channelId === existingChannelId ? existingConnectedAccountId : undefined),
         optionBotToken,
       );
       if (result === "back") {
@@ -2986,10 +2994,11 @@ async function runInteractiveComposioGmailSetup(
   const existingEmailTo =
     stringValue(opts.emailTo) ?? (existingIsGmail ? stringValue(existing["emailTo"]) : undefined);
   const existingConnectedAccountId = existingIsGmail
-    ? stringValue(opts.connectedAccountId) ?? stringValue(existing["connectedAccountId"])
+    ? (stringValue(opts.connectedAccountId) ?? stringValue(existing["connectedAccountId"]))
     : stringValue(opts.connectedAccountId);
   const existingAuthConfigId =
-    stringValue(opts.authConfigId) ?? (existingIsGmail ? stringValue(existing["authConfigId"]) : undefined);
+    stringValue(opts.authConfigId) ??
+    (existingIsGmail ? stringValue(existing["authConfigId"]) : undefined);
   const canReplace = await confirmComposioDiscordWebhookConflict(
     clack,
     targetName,

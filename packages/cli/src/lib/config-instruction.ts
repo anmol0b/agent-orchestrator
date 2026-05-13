@@ -131,7 +131,7 @@ notifiers:
   composio:
     plugin: composio
     # Run 'ao setup composio' to connect Slack through Composio
-    # userId: ao-local
+    # userId: ao-agent
     # connectedAccountId: ca_...
     # channelName: "#agents"
     # composioApiKey: ak_... # optional; otherwise uses COMPOSIO_API_KEY
@@ -142,7 +142,7 @@ notifiers:
     # defaultApp: discord
     # mode: webhook
     # webhookUrl: https://discord.com/api/webhooks/...
-    # userId: ao-local
+    # userId: ao-agent
     # composioApiKey: ak_... # optional; otherwise uses COMPOSIO_API_KEY
   composio-discord-bot:
     plugin: composio
@@ -150,7 +150,7 @@ notifiers:
     # defaultApp: discord
     # mode: bot
     # channelId: "1234567890"
-    # userId: ao-local
+    # userId: ao-agent
     # connectedAccountId: ca_...
     # composioApiKey: ak_... # optional; otherwise uses COMPOSIO_API_KEY
   composio-mail:
@@ -158,7 +158,7 @@ notifiers:
     # Run 'ao setup composio-mail' to connect Gmail through Composio
     # defaultApp: gmail
     # emailTo: alerts@example.com
-    # userId: ao-local
+    # userId: ao-agent
     # connectedAccountId: ca_...
     # composioApiKey: ak_... # optional; otherwise uses COMPOSIO_API_KEY
 

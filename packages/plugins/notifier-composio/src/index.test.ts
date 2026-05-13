@@ -131,6 +131,7 @@ describe("notifier-composio", () => {
       expect(mockToolsExecute).toHaveBeenCalledWith(
         "SLACK_SEND_MESSAGE",
         expect.objectContaining({
+          userId: "ao-agent",
           arguments: expect.objectContaining({ markdown_text: expect.any(String) }),
         }),
       );
@@ -493,7 +494,7 @@ describe("notifier-composio", () => {
 
     it("uses mail setup guidance for Gmail connection errors", async () => {
       mockToolsExecute.mockRejectedValueOnce(
-        new Error("No connected account found for user ao-local for toolkit gmail"),
+        new Error("No connected account found for user ao-agent for toolkit gmail"),
       );
 
       const notifier = create({

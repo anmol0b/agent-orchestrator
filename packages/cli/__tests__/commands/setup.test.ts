@@ -420,7 +420,7 @@ describe("setup composio command", () => {
     );
     expect(mockComposioConstructorOptions).toEqual([{ apiKey: "ak_interactive" }]);
     expect(mockConnectedAccountsList).toHaveBeenCalledWith({
-      userIds: ["ao-local"],
+      userIds: ["ao-agent"],
       toolkitSlugs: ["slack"],
       statuses: ["ACTIVE"],
       limit: 25,
@@ -437,7 +437,7 @@ describe("setup composio command", () => {
       plugin: "composio",
       defaultApp: "slack",
       composioApiKey: "ak_interactive",
-      userId: "ao-local",
+      userId: "ao-agent",
       channelName: "iamasx",
       connectedAccountId: "ca_slack_123",
     });
@@ -461,7 +461,7 @@ describe("setup composio command", () => {
     await program.parseAsync(["node", "test", "setup", "composio"]);
 
     expect(mockAuthConfigsList).toHaveBeenCalledWith({ toolkit: "slack" });
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-local", "auth_slack_123", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_slack_123", {
       allowMultiple: true,
     });
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
@@ -537,7 +537,7 @@ describe("setup composio command", () => {
       defaultApp: "discord",
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-      userId: "ao-local",
+      userId: "ao-agent",
       toolVersion: "20260429_01",
       composioApiKey: "ak_interactive",
     });
@@ -958,7 +958,7 @@ projects:
     await program.parseAsync(["node", "test", "setup", "composio"]);
 
     expect(mockAuthConfigsCreate).not.toHaveBeenCalledWith("gmail", expect.anything());
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-local", "auth_gmail_send", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_gmail_send", {
       allowMultiple: true,
     });
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
@@ -1051,12 +1051,41 @@ projects:
       plugin: "composio",
       defaultApp: "slack",
       composioApiKey: "ak_interactive",
-      userId: "ao-local",
+      userId: "ao-agent",
       channelName: "iamasx",
       connectedAccountId: "ca_slack_123",
     });
     expect(parsed.notifiers?.["composio"]).toBeUndefined();
     expect(parsed.defaults?.notifiers).toContain("composio-slack");
+  });
+
+  it("preserves an existing ao-local Composio userId", async () => {
+    mockReadFileSync.mockReturnValue(`
+notifiers:
+  composio-slack:
+    plugin: composio
+    defaultApp: slack
+    userId: ao-local
+`);
+    const program = createProgram();
+
+    await program.parseAsync([
+      "node",
+      "test",
+      "setup",
+      "composio-slack",
+      "--api-key",
+      "ak_test",
+      "--connected-account-id",
+      "ca_slack_123",
+      "--non-interactive",
+    ]);
+
+    const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
+    const parsed = parseYaml(writtenYaml) as {
+      notifiers?: Record<string, Record<string, unknown>>;
+    };
+    expect(parsed.notifiers?.["composio-slack"]?.["userId"]).toBe("ao-local");
   });
 
   it("interactive Composio Discord webhook setup writes the dedicated notifier", async () => {
@@ -1084,7 +1113,7 @@ projects:
       defaultApp: "discord",
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-      userId: "ao-local",
+      userId: "ao-agent",
     });
     expect(parsed.notifiers?.["composio"]).toBeUndefined();
     expect(parsed.defaults?.notifiers).toContain("composio-discord");
@@ -1124,7 +1153,7 @@ projects:
       defaultApp: "discord",
       mode: "bot",
       channelId: "1234567890",
-      userId: "ao-local",
+      userId: "ao-agent",
       connectedAccountId: "ca_discord_123",
     });
     expect(writtenYaml).not.toContain("bot-token");
@@ -1175,7 +1204,7 @@ projects:
       plugin: "composio",
       defaultApp: "gmail",
       emailTo: "admin@example.com",
-      userId: "ao-local",
+      userId: "ao-agent",
       connectedAccountId: "ca_gmail_123",
     });
     expect(parsed.notifiers?.["composio"]).toBeUndefined();
@@ -1515,7 +1544,7 @@ projects:
       defaultApp: "discord",
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-      userId: "ao-local",
+      userId: "ao-agent",
       toolVersion: "20260429_01",
       composioApiKey: "ak_test",
     });
@@ -1557,7 +1586,7 @@ projects:
       authScheme: "BEARER_TOKEN",
       credentials: { token: "bot-token" },
     });
-    expect(mockConnectedAccountsInitiate).toHaveBeenCalledWith("ao-local", "auth_discord_created", {
+    expect(mockConnectedAccountsInitiate).toHaveBeenCalledWith("ao-agent", "auth_discord_created", {
       allowMultiple: true,
       config: {
         authScheme: "BEARER_TOKEN",
@@ -1580,7 +1609,7 @@ projects:
       defaultApp: "discord",
       mode: "bot",
       channelId: "1234567890",
-      userId: "ao-local",
+      userId: "ao-agent",
       connectedAccountId: "ca_discord_123",
       toolVersion: "20260429_01",
       composioApiKey: "ak_test",
@@ -1783,7 +1812,7 @@ projects:
     ]);
 
     expect(mockAuthConfigsList).toHaveBeenCalledWith({ toolkit: "gmail" });
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-local", "auth_gmail_send", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_gmail_send", {
       allowMultiple: true,
     });
     expect(mockWriteFileSync).not.toHaveBeenCalled();
@@ -1877,7 +1906,7 @@ projects:
     ]);
 
     expect(mockAuthConfigsList).not.toHaveBeenCalledWith({ toolkit: "gmail" });
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-local", "auth_gmail_custom", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_gmail_custom", {
       allowMultiple: true,
     });
     expect(mockWriteFileSync).not.toHaveBeenCalled();

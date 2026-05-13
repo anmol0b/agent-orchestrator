@@ -320,14 +320,19 @@ describe("setup composio command", () => {
         },
       ],
     });
-    mockConnectedAccountsGet.mockImplementation((id: string) =>
-      Promise.resolve({
+    mockConnectedAccountsGet.mockImplementation((id: string) => {
+      const toolkit = id.includes("discord")
+        ? "discordbot"
+        : id.includes("gmail")
+          ? "gmail"
+          : "slack";
+      return Promise.resolve({
         id,
         status: "ACTIVE",
-        toolkit: { slug: "slack" },
+        toolkit: { slug: toolkit },
         isDisabled: false,
-      }),
-    );
+      });
+    });
     mockConnectedAccountsWaitForConnection.mockResolvedValue({
       id: "ca_waited",
       status: "ACTIVE",
@@ -420,7 +425,7 @@ describe("setup composio command", () => {
     );
     expect(mockComposioConstructorOptions).toEqual([{ apiKey: "ak_interactive" }]);
     expect(mockConnectedAccountsList).toHaveBeenCalledWith({
-      userIds: ["ao-agent"],
+      userIds: ["aoagent"],
       toolkitSlugs: ["slack"],
       statuses: ["ACTIVE"],
       limit: 25,
@@ -437,7 +442,7 @@ describe("setup composio command", () => {
       plugin: "composio",
       defaultApp: "slack",
       composioApiKey: "ak_interactive",
-      userId: "ao-agent",
+      userId: "aoagent",
       channelName: "iamasx",
       connectedAccountId: "ca_slack_123",
     });
@@ -461,7 +466,7 @@ describe("setup composio command", () => {
     await program.parseAsync(["node", "test", "setup", "composio"]);
 
     expect(mockAuthConfigsList).toHaveBeenCalledWith({ toolkit: "slack" });
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_slack_123", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("aoagent", "auth_slack_123", {
       allowMultiple: true,
     });
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
@@ -512,6 +517,8 @@ describe("setup composio command", () => {
       .mockResolvedValueOnce("enter-new")
       .mockResolvedValueOnce("use-current")
       .mockResolvedValueOnce("enter-url")
+      .mockResolvedValueOnce("create-account")
+      .mockResolvedValueOnce("urgent-action")
       .mockResolvedValueOnce("write");
     mockClack.password.mockResolvedValueOnce("ak_interactive");
     mockClack.text.mockResolvedValueOnce(
@@ -521,9 +528,19 @@ describe("setup composio command", () => {
 
     await program.parseAsync(["node", "test", "setup", "composio"]);
 
-    expect(mockAuthConfigsCreate).not.toHaveBeenCalled();
+    expect(mockAuthConfigsCreate).toHaveBeenCalledWith("discordbot", {
+      type: "use_custom_auth",
+      name: "Discord Webhook Auth Config",
+      authScheme: "BEARER_TOKEN",
+      credentials: { token: "webhook-token" },
+    });
     expect(mockConnectedAccountsLink).not.toHaveBeenCalled();
-    expect(mockConnectedAccountsInitiate).not.toHaveBeenCalled();
+    expect(mockConnectedAccountsInitiate).toHaveBeenCalled();
+    expect(mockClack.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "How do you want to configure the Composio Discord webhook connected account?",
+      }),
+    );
 
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
     const parsed = parseYaml(writtenYaml) as {
@@ -537,11 +554,11 @@ describe("setup composio command", () => {
       defaultApp: "discord",
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-      userId: "ao-agent",
+      userId: "aoagent",
       toolVersion: "20260429_01",
       composioApiKey: "ak_interactive",
+      connectedAccountId: "ca_discord_123",
     });
-    expect(parsed.notifiers?.["composio"]?.connectedAccountId).toBeUndefined();
     expect(parsed.notifiers?.["composio-discord"]).toBeUndefined();
     expect(parsed.defaults?.notifiers).toContain("composio");
     expect(parsed.notificationRouting?.["urgent"]).toContain("composio");
@@ -568,12 +585,14 @@ projects:
       .mockResolvedValueOnce("use-existing")
       .mockResolvedValueOnce("use-current")
       .mockResolvedValueOnce("use-existing")
+      .mockResolvedValueOnce("use-existing")
+      .mockResolvedValueOnce("urgent-action")
       .mockResolvedValueOnce("write");
     const program = createProgram();
 
     await program.parseAsync(["node", "test", "setup", "composio"]);
 
-    expect(mockConnectedAccountsGet).not.toHaveBeenCalled();
+    expect(mockConnectedAccountsGet).toHaveBeenCalledWith("ca_discord_existing");
     expect(mockConnectedAccountsInitiate).not.toHaveBeenCalled();
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
     const parsed = parseYaml(writtenYaml) as {
@@ -582,8 +601,8 @@ projects:
     expect(parsed.notifiers?.["composio"]).toMatchObject({
       webhookUrl: "https://discord.com/api/webhooks/old/webhook-token",
       userId: "ao-existing",
+      connectedAccountId: "ca_discord_existing",
     });
-    expect(parsed.notifiers?.["composio"]?.connectedAccountId).toBeUndefined();
   });
 
   it("interactive Discord webhook setup can show creation steps before URL entry", async () => {
@@ -594,6 +613,8 @@ projects:
       .mockResolvedValueOnce("use-current")
       .mockResolvedValueOnce("show-steps")
       .mockResolvedValueOnce("enter-url")
+      .mockResolvedValueOnce("create-account")
+      .mockResolvedValueOnce("urgent-action")
       .mockResolvedValueOnce("write");
     mockClack.password.mockResolvedValueOnce("ak_interactive");
     mockClack.text.mockResolvedValueOnce("https://discord.com/api/webhooks/222/webhook-token");
@@ -608,6 +629,7 @@ projects:
     );
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
     expect(writtenYaml).toContain("webhookUrl: https://discord.com/api/webhooks/222/webhook-token");
+    expect(writtenYaml).toContain("connectedAccountId: ca_discord_123");
     expect(mockConnectedAccountsLink).not.toHaveBeenCalled();
   });
 
@@ -632,6 +654,8 @@ projects:
       .mockResolvedValueOnce("use-existing")
       .mockResolvedValueOnce("use-current")
       .mockResolvedValueOnce("enter-url")
+      .mockResolvedValueOnce("create-account")
+      .mockResolvedValueOnce("urgent-action")
       .mockResolvedValueOnce("write");
     mockClack.text.mockResolvedValueOnce("https://discord.com/api/webhooks/333/webhook-token");
     const program = createProgram();
@@ -649,9 +673,9 @@ projects:
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/333/webhook-token",
       userId: "ao-existing",
+      connectedAccountId: "ca_discord_123",
     });
     expect(parsed.notifiers?.["composio"]?.channelName).toBeUndefined();
-    expect(parsed.notifiers?.["composio"]?.connectedAccountId).toBeUndefined();
     expect(parsed.notifiers?.["composio"]?.emailTo).toBeUndefined();
     expect(parsed.defaults?.notifiers).toContain("composio");
   });
@@ -958,7 +982,7 @@ projects:
     await program.parseAsync(["node", "test", "setup", "composio"]);
 
     expect(mockAuthConfigsCreate).not.toHaveBeenCalledWith("gmail", expect.anything());
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_gmail_send", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("aoagent", "auth_gmail_send", {
       allowMultiple: true,
     });
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
@@ -1051,7 +1075,7 @@ projects:
       plugin: "composio",
       defaultApp: "slack",
       composioApiKey: "ak_interactive",
-      userId: "ao-agent",
+      userId: "aoagent",
       channelName: "iamasx",
       connectedAccountId: "ca_slack_123",
     });
@@ -1059,13 +1083,13 @@ projects:
     expect(parsed.defaults?.notifiers).toContain("composio-slack");
   });
 
-  it("preserves an existing ao-local Composio userId", async () => {
+  it("preserves an existing custom Composio userId", async () => {
     mockReadFileSync.mockReturnValue(`
 notifiers:
   composio-slack:
     plugin: composio
     defaultApp: slack
-    userId: ao-local
+    userId: existing-user
 `);
     const program = createProgram();
 
@@ -1085,7 +1109,7 @@ notifiers:
     const parsed = parseYaml(writtenYaml) as {
       notifiers?: Record<string, Record<string, unknown>>;
     };
-    expect(parsed.notifiers?.["composio-slack"]?.["userId"]).toBe("ao-local");
+    expect(parsed.notifiers?.["composio-slack"]?.["userId"]).toBe("existing-user");
   });
 
   it("interactive Composio Discord webhook setup writes the dedicated notifier", async () => {
@@ -1094,6 +1118,8 @@ notifiers:
       .mockResolvedValueOnce("enter-new")
       .mockResolvedValueOnce("use-current")
       .mockResolvedValueOnce("enter-url")
+      .mockResolvedValueOnce("create-account")
+      .mockResolvedValueOnce("urgent-action")
       .mockResolvedValueOnce("write");
     mockClack.password.mockResolvedValueOnce("ak_interactive");
     mockClack.text.mockResolvedValueOnce(
@@ -1113,7 +1139,8 @@ notifiers:
       defaultApp: "discord",
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-      userId: "ao-agent",
+      userId: "aoagent",
+      connectedAccountId: "ca_discord_123",
     });
     expect(parsed.notifiers?.["composio"]).toBeUndefined();
     expect(parsed.defaults?.notifiers).toContain("composio-discord");
@@ -1153,7 +1180,7 @@ notifiers:
       defaultApp: "discord",
       mode: "bot",
       channelId: "1234567890",
-      userId: "ao-agent",
+      userId: "aoagent",
       connectedAccountId: "ca_discord_123",
     });
     expect(writtenYaml).not.toContain("bot-token");
@@ -1204,7 +1231,7 @@ notifiers:
       plugin: "composio",
       defaultApp: "gmail",
       emailTo: "admin@example.com",
-      userId: "ao-agent",
+      userId: "aoagent",
       connectedAccountId: "ca_gmail_123",
     });
     expect(parsed.notifiers?.["composio"]).toBeUndefined();
@@ -1514,7 +1541,7 @@ projects:
     expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
 
-  it("writes Composio Discord webhook config without creating a connected account", async () => {
+  it("writes Composio Discord webhook config with a connected account", async () => {
     const program = createProgram();
 
     await program.parseAsync([
@@ -1529,8 +1556,13 @@ projects:
       "--non-interactive",
     ]);
 
-    expect(mockAuthConfigsCreate).not.toHaveBeenCalled();
-    expect(mockConnectedAccountsInitiate).not.toHaveBeenCalled();
+    expect(mockAuthConfigsCreate).toHaveBeenCalledWith("discordbot", {
+      type: "use_custom_auth",
+      name: "Discord Webhook Auth Config",
+      authScheme: "BEARER_TOKEN",
+      credentials: { token: "webhook-token" },
+    });
+    expect(mockConnectedAccountsInitiate).toHaveBeenCalled();
 
     const writtenYaml = mockWriteFileSync.mock.calls[0][1] as string;
     const parsed = parseYaml(writtenYaml) as {
@@ -1544,11 +1576,11 @@ projects:
       defaultApp: "discord",
       mode: "webhook",
       webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-      userId: "ao-agent",
+      userId: "aoagent",
       toolVersion: "20260429_01",
       composioApiKey: "ak_test",
+      connectedAccountId: "ca_discord_123",
     });
-    expect(parsed.notifiers?.["composio-discord"]?.connectedAccountId).toBeUndefined();
     expect(parsed.defaults?.notifiers).toContain("composio-discord");
     expect(parsed.notificationRouting?.["urgent"]).toContain("composio-discord");
     expect(writtenYaml).not.toContain("botToken");
@@ -1586,7 +1618,7 @@ projects:
       authScheme: "BEARER_TOKEN",
       credentials: { token: "bot-token" },
     });
-    expect(mockConnectedAccountsInitiate).toHaveBeenCalledWith("ao-agent", "auth_discord_created", {
+    expect(mockConnectedAccountsInitiate).toHaveBeenCalledWith("aoagent", "auth_discord_created", {
       allowMultiple: true,
       config: {
         authScheme: "BEARER_TOKEN",
@@ -1609,7 +1641,7 @@ projects:
       defaultApp: "discord",
       mode: "bot",
       channelId: "1234567890",
-      userId: "ao-agent",
+      userId: "aoagent",
       connectedAccountId: "ca_discord_123",
       toolVersion: "20260429_01",
       composioApiKey: "ak_test",
@@ -1812,7 +1844,7 @@ projects:
     ]);
 
     expect(mockAuthConfigsList).toHaveBeenCalledWith({ toolkit: "gmail" });
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_gmail_send", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("aoagent", "auth_gmail_send", {
       allowMultiple: true,
     });
     expect(mockWriteFileSync).not.toHaveBeenCalled();
@@ -1906,7 +1938,7 @@ projects:
     ]);
 
     expect(mockAuthConfigsList).not.toHaveBeenCalledWith({ toolkit: "gmail" });
-    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("ao-agent", "auth_gmail_custom", {
+    expect(mockConnectedAccountsLink).toHaveBeenCalledWith("aoagent", "auth_gmail_custom", {
       allowMultiple: true,
     });
     expect(mockWriteFileSync).not.toHaveBeenCalled();

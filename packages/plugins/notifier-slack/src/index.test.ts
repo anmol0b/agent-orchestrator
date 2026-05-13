@@ -31,6 +31,14 @@ function mockFetchOk() {
   });
 }
 
+function getSlackAttachment(body: Record<string, any>): Record<string, any> {
+  return body.attachments[0];
+}
+
+function getSlackBlocks(body: Record<string, any>): Array<Record<string, any>> {
+  return getSlackAttachment(body).blocks;
+}
+
 describe("notifier-slack", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -157,11 +165,13 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent({ priority: "urgent", sessionId: "backend-3" }));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const header = body.blocks[0];
+      const blocks = getSlackBlocks(body);
+      const header = blocks[0];
       expect(header.type).toBe("header");
       expect(header.text.type).toBe("plain_text");
       expect(header.text.text).toContain(":rotating_light:");
-      expect(header.text.text).toContain("backend-3");
+      expect(body.text).toContain("Session Spawned");
+      expect(getSlackAttachment(body).color).toBe("#E01E5A");
     });
 
     it("uses correct emoji for each priority level", async () => {
@@ -181,7 +191,7 @@ describe("notifier-slack", () => {
         fetchMock.mockClear();
         await notifier.notify(makeEvent({ priority }));
         const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-        expect(body.blocks[0].text.text).toContain(emoji);
+        expect(getSlackBlocks(body)[0].text.text).toContain(emoji);
       }
     });
 
@@ -193,7 +203,7 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent({ message: "CI is green" }));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const section = body.blocks[1];
+      const section = getSlackBlocks(body)[1];
       expect(section.type).toBe("section");
       expect(section.text.text).toBe("CI is green");
     });
@@ -206,10 +216,12 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent({ projectId: "frontend", priority: "action" }));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const context = body.blocks[2];
-      expect(context.type).toBe("context");
-      expect(context.elements[0].text).toContain("*Project:* frontend");
-      expect(context.elements[0].text).toContain("*Priority:* action");
+      const fieldsBlock = getSlackBlocks(body).find((b) => b.type === "section" && b.fields)!;
+      expect(fieldsBlock).toBeDefined();
+      expect(fieldsBlock.fields[0].text).toContain("*Project*");
+      expect(fieldsBlock.fields[0].text).toContain("frontend");
+      expect(fieldsBlock.fields[2].text).toContain("*Priority*");
+      expect(fieldsBlock.fields[2].text).toContain("Action required");
     });
 
     it("includes PR link when subject.pr.url is present in v3 data", async () => {
@@ -229,12 +241,12 @@ describe("notifier-slack", () => {
       );
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const prBlock = body.blocks.find(
+      const actionsBlock = getSlackBlocks(body).find(
         (b: Record<string, unknown>) =>
-          b.type === "section" && (b as any).text?.text?.includes("View Pull Request"),
-      );
-      expect(prBlock).toBeDefined();
-      expect(prBlock.text.text).toContain("https://github.com/org/repo/pull/42");
+          b.type === "actions" && (b as any).elements?.[0]?.text?.text?.includes("View PR"),
+      )!;
+      expect(actionsBlock).toBeDefined();
+      expect(actionsBlock.elements[0].url).toBe("https://github.com/org/repo/pull/42");
     });
 
     it("ignores legacy flat prUrl", async () => {
@@ -245,9 +257,9 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent({ data: { prUrl: "https://github.com/org/repo/pull/42" } }));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const prBlock = body.blocks.find(
+      const prBlock = getSlackBlocks(body).find(
         (b: Record<string, unknown>) =>
-          b.type === "section" && (b as any).text?.text?.includes("View Pull Request"),
+          b.type === "actions" && (b as any).elements?.[0]?.text?.text?.includes("View PR"),
       );
       expect(prBlock).toBeUndefined();
     });
@@ -260,7 +272,7 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent({ data: { ciStatus: "passing" } }));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const ciBlock = body.blocks.find(
+      const ciBlock = getSlackBlocks(body).find(
         (b: Record<string, unknown>) =>
           b.type === "context" && (b as any).elements?.[0]?.text?.includes("CI:"),
       );
@@ -275,10 +287,10 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent({ data: makeV3Data({ ci: { status: "passing" } }) }));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const ciBlock = body.blocks.find(
+      const ciBlock = getSlackBlocks(body).find(
         (b: Record<string, unknown>) =>
           b.type === "context" && (b as any).elements?.[0]?.text?.includes("CI:"),
-      );
+      )!;
       expect(ciBlock).toBeDefined();
       expect(ciBlock.elements[0].text).toContain(":white_check_mark:");
     });
@@ -300,10 +312,10 @@ describe("notifier-slack", () => {
       );
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const ciBlock = body.blocks.find(
+      const ciBlock = getSlackBlocks(body).find(
         (b: Record<string, unknown>) =>
           b.type === "context" && (b as any).elements?.[0]?.text?.includes("CI:"),
-      );
+      )!;
       expect(ciBlock.elements[0].text).toContain(":x:");
       expect(ciBlock.elements[0].text).toContain("typecheck");
     });
@@ -316,7 +328,8 @@ describe("notifier-slack", () => {
       await notifier.notify(makeEvent());
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const lastBlock = body.blocks[body.blocks.length - 1];
+      const blocks = getSlackBlocks(body);
+      const lastBlock = blocks[blocks.length - 1];
       expect(lastBlock.type).toBe("divider");
     });
   });
@@ -334,7 +347,9 @@ describe("notifier-slack", () => {
       await notifier.notifyWithActions!(makeEvent(), actions);
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const actionsBlock = body.blocks.find((b: Record<string, unknown>) => b.type === "actions");
+      const actionsBlock = getSlackBlocks(body).find(
+        (b: Record<string, unknown>) => b.type === "actions",
+      )!;
       expect(actionsBlock).toBeDefined();
       expect(actionsBlock.elements).toHaveLength(2);
       expect(actionsBlock.elements[0].type).toBe("button");
@@ -352,9 +367,12 @@ describe("notifier-slack", () => {
       await notifier.notifyWithActions!(makeEvent(), actions);
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const actionsBlock = body.blocks.find((b: Record<string, unknown>) => b.type === "actions");
+      const actionsBlock = getSlackBlocks(body).find(
+        (b: Record<string, unknown>) => b.type === "actions",
+      )!;
       expect(actionsBlock.elements[0].action_id).toBe("ao_kill_session_0");
       expect(actionsBlock.elements[0].value).toBe("/api/sessions/app-1/kill");
+      expect(actionsBlock.elements[0].style).toBe("danger");
     });
 
     it("filters out actions with no url or callback", async () => {
@@ -369,7 +387,9 @@ describe("notifier-slack", () => {
       await notifier.notifyWithActions!(makeEvent(), actions);
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      const actionsBlock = body.blocks.find((b: Record<string, unknown>) => b.type === "actions");
+      const actionsBlock = getSlackBlocks(body).find(
+        (b: Record<string, unknown>) => b.type === "actions",
+      )!;
       expect(actionsBlock.elements).toHaveLength(1);
       expect(actionsBlock.elements[0].text.text).toBe("Merge");
     });

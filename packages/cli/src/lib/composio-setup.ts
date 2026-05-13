@@ -22,7 +22,7 @@ const COMPOSIO_SLACK_NOTIFIER = "composio-slack";
 const COMPOSIO_DISCORD_WEBHOOK_NOTIFIER = "composio-discord";
 const COMPOSIO_DISCORD_BOT_NOTIFIER = "composio-discord-bot";
 const COMPOSIO_MAIL_NOTIFIER = "composio-mail";
-const DEFAULT_COMPOSIO_USER_ID = "ao-agent";
+const DEFAULT_COMPOSIO_USER_ID = "aoagent";
 const GMAIL_SEND_TOOL = "GMAIL_SEND_EMAIL";
 const COMPOSIO_DASHBOARD_URL = "https://app.composio.dev";
 const DISCORD_APP_URL = "https://discord.com/app";
@@ -66,6 +66,7 @@ export interface ComposioDiscordWebhookSetupOptions {
   apiKey?: string;
   userId?: string;
   webhookUrl?: string;
+  connectedAccountId?: string;
   nonInteractive?: boolean;
   status?: boolean;
   force?: boolean;
@@ -941,7 +942,7 @@ function redactDiscordWebhookUrl(webhookUrl: string | undefined): string {
 function printComposioDiscordWebhookInfo(): void {
   console.log(
     chalk.dim(
-      "AO uses Composio's discordbot toolkit with DISCORDBOT_EXECUTE_WEBHOOK. Webhook mode does not need a Composio connected account; AO passes the Discord webhook id and token as tool arguments.",
+      "AO uses Composio's discordbot toolkit with DISCORDBOT_EXECUTE_WEBHOOK. Webhook mode stores the Discord webhook token as a Composio bearer connected account; no Discord bot invite is required.",
     ),
   );
 }
@@ -969,6 +970,9 @@ function printComposioDiscordWebhookReview(
   console.log(`  api key: configured from ${apiKeySource}`);
   console.log(`  userId: ${resolved.userId}`);
   console.log(`  webhookUrl: ${redactDiscordWebhookUrl(resolved.webhookUrl)}`);
+  console.log(
+    `  connectedAccountId: ${resolved.connectedAccountId ?? "will be created from webhook URL"}`,
+  );
   console.log(`  toolVersion: ${DISCORD_TOOL_VERSION}`);
   console.log(`  routing: ${routingReviewLabel(resolved.routingPreset)}`);
   console.log("");
@@ -1061,7 +1065,8 @@ function printComposioAppRequirements(choice: ComposioAppChoice): void {
   if (choice === "discord-webhook") {
     console.log(chalk.bold("Composio Discord webhook setup"));
     console.log("  Required: Composio API key, userId, Discord webhook URL.");
-    console.log("  No Composio connected account or bot token is required for webhook mode.");
+    console.log("  AO creates/stores a Composio connected account from the webhook token.");
+    console.log("  No Discord bot invite is required for webhook mode.");
     console.log("  Current command: ao setup composio-discord --webhook-url <url>");
   } else if (choice === "discord-bot") {
     console.log(chalk.bold("Composio Discord bot setup"));
@@ -1624,13 +1629,18 @@ async function promptInteractiveComposioDiscordWebhookReview(
   clack: ClackPrompts,
   resolved: ResolvedDiscordSetup,
   apiKeySource: string,
-): Promise<"write" | "webhook" | "routing" | "app" | "cancel"> {
+): Promise<"write" | "webhook" | "account" | "routing" | "app" | "cancel"> {
   printComposioDiscordWebhookReview(resolved, apiKeySource);
   const choice = await clack.select({
     message: "Write this Composio Discord webhook config?",
     options: [
       { value: "write", label: "Write config", hint: "Update agent-orchestrator.yaml" },
       { value: "webhook", label: "Change webhook URL", hint: "Return to webhook URL step" },
+      {
+        value: "account",
+        label: "Change connected account",
+        hint: "Create, choose, or enter a Composio connected account",
+      },
       { value: "routing", label: "Change routing", hint: "Choose notification priorities" },
       { value: "app", label: "Back to app choices", hint: "Choose another Composio app" },
       { value: "cancel", label: "Cancel setup", hint: "Do not change config" },
@@ -1640,7 +1650,159 @@ async function promptInteractiveComposioDiscordWebhookReview(
   if (clack.isCancel(choice) || choice === "cancel") {
     cancelInteractiveComposioSetup(clack);
   }
-  return choice as "write" | "webhook" | "routing" | "app" | "cancel";
+  return choice as "write" | "webhook" | "account" | "routing" | "app" | "cancel";
+}
+
+async function promptManualDiscordWebhookConnectedAccountId(
+  clack: ClackPrompts,
+  client: ComposioSetupClient,
+  userId: string,
+  initialValue: string | undefined,
+): Promise<string | "back"> {
+  const accountId = await clack.text({
+    message: "Composio Discord webhook connectedAccountId:",
+    placeholder: "ca_...",
+    initialValue,
+    validate: (value) => {
+      if (!String(value ?? "").trim()) return "connectedAccountId is required.";
+    },
+  });
+
+  if (clack.isCancel(accountId)) {
+    cancelInteractiveComposioSetup(clack);
+  }
+
+  try {
+    const account = await verifyConnectedAccountForToolkit(
+      client,
+      userId,
+      String(accountId).trim(),
+      DISCORD_TOOLKIT,
+      "Discord webhook",
+    );
+    return account.id;
+  } catch (error) {
+    console.log(chalk.yellow(error instanceof Error ? error.message : String(error)));
+    return "back";
+  }
+}
+
+async function promptChooseDiscordWebhookConnectedAccount(
+  clack: ClackPrompts,
+  accounts: ConnectedAccount[],
+): Promise<ConnectedAccount | "back"> {
+  if (accounts.length === 0) {
+    console.log(
+      chalk.yellow(
+        "No active Discord webhook connected accounts were found for this Composio userId.",
+      ),
+    );
+    return "back";
+  }
+
+  const selected = await clack.select({
+    message: "Select the Discord webhook connected account AO should use:",
+    options: [
+      ...accounts.map((account) => ({
+        value: account.id,
+        label: account.alias ? `${account.alias} (${account.id})` : account.id,
+      })),
+      { value: "back", label: "Back", hint: "Return to Discord webhook account options" },
+      { value: "cancel", label: "Cancel setup", hint: "Do not change config" },
+    ],
+  });
+
+  if (clack.isCancel(selected) || selected === "cancel") {
+    cancelInteractiveComposioSetup(clack);
+  }
+  if (selected === "back") return "back";
+  return accounts.find((account) => account.id === selected) ?? "back";
+}
+
+async function promptInteractiveDiscordWebhookAccount(
+  clack: ClackPrompts,
+  client: ComposioSetupClient,
+  userId: string,
+  webhookUrl: string,
+  existingConnectedAccountId: string | undefined,
+): Promise<string | "back"> {
+  while (true) {
+    const choice = await clack.select({
+      message: "How do you want to configure the Composio Discord webhook connected account?",
+      options: [
+        ...(existingConnectedAccountId
+          ? [
+              {
+                value: "use-existing",
+                label: "Use existing connected account",
+                hint: existingConnectedAccountId,
+              },
+            ]
+          : []),
+        {
+          value: "create-account",
+          label: "Create from webhook URL",
+          hint: "Store the webhook token in Composio for this userId",
+        },
+        {
+          value: "choose-active",
+          label: "Choose active Discord account",
+          hint: "List discordbot accounts already connected in Composio",
+        },
+        {
+          value: "enter-id",
+          label: "Enter connectedAccountId",
+          hint: "Use an existing ca_... value",
+        },
+        { value: "back", label: "Back", hint: "Return to webhook URL" },
+        { value: "cancel", label: "Cancel setup", hint: "Do not change config" },
+      ],
+    });
+
+    if (clack.isCancel(choice) || choice === "cancel") {
+      cancelInteractiveComposioSetup(clack);
+    }
+    if (choice === "back") return "back";
+
+    if (choice === "use-existing" && existingConnectedAccountId) {
+      try {
+        const account = await verifyConnectedAccountForToolkit(
+          client,
+          userId,
+          existingConnectedAccountId,
+          DISCORD_TOOLKIT,
+          "Discord webhook",
+        );
+        return account.id;
+      } catch (error) {
+        console.log(chalk.yellow(error instanceof Error ? error.message : String(error)));
+        continue;
+      }
+    }
+
+    if (choice === "create-account") {
+      return resolveDiscordWebhookConnectedAccountId(client, userId, webhookUrl);
+    }
+
+    if (choice === "choose-active") {
+      const account = await promptChooseDiscordWebhookConnectedAccount(
+        clack,
+        await listActiveToolkitAccounts(client, userId, DISCORD_TOOLKIT),
+      );
+      if (account !== "back") return account.id;
+      continue;
+    }
+
+    if (choice === "enter-id") {
+      const accountId = await promptManualDiscordWebhookConnectedAccountId(
+        clack,
+        client,
+        userId,
+        existingConnectedAccountId,
+      );
+      if (accountId !== "back") return accountId;
+    }
+  }
 }
 
 function validateDiscordChannelIdInput(value: string): string | undefined {
@@ -2713,6 +2875,8 @@ async function runInteractiveComposioDiscordWebhookSetup(
     stringValue(opts.webhookUrl) ??
     stringValue(existing["webhookUrl"]) ??
     stringValue(process.env.DISCORD_WEBHOOK_URL);
+  const explicitConnectedAccountId = stringValue(opts.connectedAccountId);
+  const existingConnectedAccountId = stringValue(existing["connectedAccountId"]);
   const canReplace = await confirmComposioDiscordWebhookConflict(
     clack,
     targetName,
@@ -2722,11 +2886,13 @@ async function runInteractiveComposioDiscordWebhookSetup(
   if (!canReplace) return "back";
 
   const optionRoutingPreset = resolveComposioRoutingPreset(opts.routingPreset);
-  let step: "api-key" | "user-id" | "webhook" | "routing" | "review" = "api-key";
+  let step: "api-key" | "user-id" | "webhook" | "account" | "routing" | "review" = "api-key";
   let apiKey: ResolvedApiKey | undefined;
   let userId: string | undefined;
   let webhookUrl: string | undefined;
+  let connectedAccountId: string | undefined;
   let routingPreset: NotifierRoutingPreset | undefined;
+  let setupClient: ComposioSetupClient | undefined;
 
   while (true) {
     if (step === "api-key") {
@@ -2758,6 +2924,30 @@ async function runInteractiveComposioDiscordWebhookSetup(
         continue;
       }
       webhookUrl = result;
+      connectedAccountId = explicitConnectedAccountId;
+      step = "account";
+      continue;
+    }
+
+    if (step === "account") {
+      if (!apiKey || !userId || !webhookUrl) {
+        step = "api-key";
+        continue;
+      }
+
+      setupClient ??= await loadComposioClient(apiKey.apiKey);
+      const result = await promptInteractiveDiscordWebhookAccount(
+        clack,
+        setupClient,
+        userId,
+        webhookUrl,
+        connectedAccountId ?? explicitConnectedAccountId ?? existingConnectedAccountId,
+      );
+      if (result === "back") {
+        step = "webhook";
+        continue;
+      }
+      connectedAccountId = result;
       step = "routing";
       continue;
     }
@@ -2785,6 +2975,10 @@ async function runInteractiveComposioDiscordWebhookSetup(
       step = "api-key";
       continue;
     }
+    if (!connectedAccountId) {
+      step = "account";
+      continue;
+    }
 
     const resolved: ResolvedDiscordSetup = {
       apiKey: apiKey.apiKey,
@@ -2793,6 +2987,7 @@ async function runInteractiveComposioDiscordWebhookSetup(
       mode: "webhook",
       targetName,
       webhookUrl,
+      connectedAccountId,
       routingPreset,
     };
     const reviewChoice = await promptInteractiveComposioDiscordWebhookReview(
@@ -2802,6 +2997,10 @@ async function runInteractiveComposioDiscordWebhookSetup(
     );
     if (reviewChoice === "webhook") {
       step = "webhook";
+      continue;
+    }
+    if (reviewChoice === "account") {
+      step = "account";
       continue;
     }
     if (reviewChoice === "routing") {
@@ -2815,6 +3014,7 @@ async function runInteractiveComposioDiscordWebhookSetup(
     writeComposioDiscordConfig(configPath, resolved);
     console.log(chalk.green(`✓ Config written to ${configPath}`));
     console.log(chalk.green("✓ Discord webhook configured through Composio"));
+    console.log(chalk.green(`✓ Discord webhook connected account: ${resolved.connectedAccountId}`));
     console.log(chalk.dim(`Test it with: ao notify test --to ${targetName} --template basic`));
     clack.outro("Composio Discord webhook setup complete.");
     return "done";
@@ -3332,6 +3532,39 @@ async function createDiscordBearerConnectedAccount(
   return createDiscordBearerConnectedAccountWithAuthConfig(client, userId, authConfigId, token);
 }
 
+async function resolveDiscordWebhookConnectedAccountId(
+  client: ComposioSetupClient,
+  userId: string,
+  webhookUrl: string,
+  connectedAccountId?: string,
+  explicitConnectedAccountId = false,
+): Promise<string> {
+  if (connectedAccountId) {
+    try {
+      const account = await verifyConnectedAccountForToolkit(
+        client,
+        userId,
+        connectedAccountId,
+        DISCORD_TOOLKIT,
+        "Discord webhook",
+      );
+      return account.id;
+    } catch (error) {
+      if (explicitConnectedAccountId) throw error;
+      console.log(chalk.yellow(error instanceof Error ? error.message : String(error)));
+      console.log(chalk.dim("Creating a new Discord webhook connected account for this userId."));
+    }
+  }
+
+  const { webhookToken } = parseDiscordWebhookUrl(webhookUrl);
+  return createDiscordBearerConnectedAccount(
+    client,
+    userId,
+    webhookToken,
+    "Discord Webhook Auth Config",
+  );
+}
+
 async function validateDiscordBotChannelAccess(botToken: string, channelId: string): Promise<void> {
   const res = await fetch(`https://discord.com/api/v10/channels/${encodeURIComponent(channelId)}`, {
     headers: {
@@ -3448,8 +3681,12 @@ function writeComposioDiscordConfig(configPath: string, resolved: ResolvedDiscor
     composioConfig["webhookUrl"] = resolved.webhookUrl;
     delete composioConfig["channelId"];
     delete composioConfig["channelName"];
-    delete composioConfig["connectedAccountId"];
     delete composioConfig["emailTo"];
+    if (resolved.connectedAccountId) {
+      composioConfig["connectedAccountId"] = resolved.connectedAccountId;
+    } else {
+      delete composioConfig["connectedAccountId"];
+    }
   } else {
     composioConfig["channelId"] = resolved.channelId;
     delete composioConfig["webhookUrl"];
@@ -3580,9 +3817,7 @@ function printDiscordStatus(
   console.log("  api key: configured");
   console.log(`  mode: ${resolved.mode}`);
   console.log(`  userId: ${resolved.userId}`);
-  if (resolved.mode !== "webhook") {
-    console.log(`  connectedAccountId: ${resolved.connectedAccountId ?? "not configured"}`);
-  }
+  console.log(`  connectedAccountId: ${resolved.connectedAccountId ?? "not configured"}`);
   if (rawConfig) {
     console.log(`  routing: ${getNotifierRoutingState(rawConfig, resolved.targetName).label}`);
   }
@@ -3828,14 +4063,18 @@ async function resolveDiscordWebhookSetup(
   }
 
   const userId = resolveUserId(opts, existing);
+  const client = await loadComposioClient(apiKey);
   const routingPreset = resolveComposioRoutingPreset(opts.routingPreset) ?? "all";
+  const explicitConnectedAccountId = stringValue(opts.connectedAccountId);
+  const existingConnectedAccountId = stringValue(existing["connectedAccountId"]);
+  const connectedAccountId = explicitConnectedAccountId ?? existingConnectedAccountId;
   const webhookUrl =
     stringValue(opts.webhookUrl) ??
     stringValue(process.env.DISCORD_WEBHOOK_URL) ??
     stringValue(existing["webhookUrl"]);
 
   if (opts.status) {
-    printDiscordStatus({ targetName, mode: "webhook", userId }, rawConfig);
+    printDiscordStatus({ targetName, mode: "webhook", userId, connectedAccountId }, rawConfig);
     return {
       apiKey,
       shouldWriteApiKey,
@@ -3843,6 +4082,7 @@ async function resolveDiscordWebhookSetup(
       mode: "webhook",
       targetName,
       webhookUrl,
+      connectedAccountId,
       routingPreset,
     };
   }
@@ -3853,6 +4093,13 @@ async function resolveDiscordWebhookSetup(
     );
   }
   parseDiscordWebhookUrl(webhookUrl);
+  const resolvedConnectedAccountId = await resolveDiscordWebhookConnectedAccountId(
+    client,
+    userId,
+    webhookUrl,
+    connectedAccountId,
+    Boolean(explicitConnectedAccountId),
+  );
 
   return {
     apiKey,
@@ -3861,6 +4108,7 @@ async function resolveDiscordWebhookSetup(
     mode: "webhook",
     targetName,
     webhookUrl,
+    connectedAccountId: resolvedConnectedAccountId,
     routingPreset,
   };
 }
@@ -4152,6 +4400,9 @@ export async function runComposioDiscordWebhookSetupAction(
   writeComposioDiscordConfig(configPath, resolved);
   console.log(chalk.green(`✓ Config written to ${configPath}`));
   console.log(chalk.green("✓ Discord webhook configured through Composio"));
+  if (resolved.connectedAccountId) {
+    console.log(chalk.green(`✓ Discord webhook connected account: ${resolved.connectedAccountId}`));
+  }
   console.log(
     chalk.dim(
       `Test it with: ao notify test --to ${COMPOSIO_DISCORD_WEBHOOK_NOTIFIER} --template basic`,

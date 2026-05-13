@@ -243,6 +243,7 @@ export function registerSetup(program: Command): void {
     .option("--api-key <key>", "Composio API key (otherwise uses COMPOSIO_API_KEY)")
     .option("--user-id <id>", "Composio user id for tool execution")
     .option("--webhook-url <url>", "Discord webhook URL")
+    .option("--connected-account-id <id>", "Existing Composio Discord webhook connected account id")
     .option("--routing-preset <preset>", "Routing preset: urgent-only | urgent-action | all")
     .option("--non-interactive", "Skip prompts")
     .option("--status", "Show Composio Discord webhook setup status without changing config")

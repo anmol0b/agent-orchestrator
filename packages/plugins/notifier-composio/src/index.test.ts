@@ -37,6 +37,16 @@ function makeV3Data(overrides: Record<string, unknown> = {}): Record<string, unk
   };
 }
 
+function getSlackAttachment(): any {
+  const callArgs = mockToolsExecute.mock.calls[0][1];
+  return JSON.parse(String(callArgs.arguments.attachments))[0];
+}
+
+function getSlackActions(): any[] {
+  const attachment = getSlackAttachment();
+  return attachment.blocks.find((block: any) => block.type === "actions")?.elements ?? [];
+}
+
 describe("notifier-composio", () => {
   const originalEnv = {
     COMPOSIO_API_KEY: process.env.COMPOSIO_API_KEY,
@@ -131,7 +141,7 @@ describe("notifier-composio", () => {
       expect(mockToolsExecute).toHaveBeenCalledWith(
         "SLACK_SEND_MESSAGE",
         expect.objectContaining({
-          userId: "ao-agent",
+          userId: "aoagent",
           arguments: expect.objectContaining({ markdown_text: expect.any(String) }),
         }),
       );
@@ -157,7 +167,22 @@ describe("notifier-composio", () => {
 
       expect(mockToolsExecute).toHaveBeenCalledWith(
         "DISCORDBOT_CREATE_MESSAGE",
-        expect.any(Object),
+        expect.objectContaining({
+          arguments: expect.objectContaining({
+            channel_id: "1234567890",
+            content: expect.stringContaining("Session Spawned"),
+            embeds: [
+              expect.objectContaining({
+                title: expect.stringContaining("Session Spawned"),
+                fields: expect.arrayContaining([
+                  expect.objectContaining({ name: "Project", value: "my-project" }),
+                  expect.objectContaining({ name: "Session", value: "app-1" }),
+                ]),
+              }),
+            ],
+            allowed_mentions: { parse: [] },
+          }),
+        }),
       );
     });
 
@@ -167,7 +192,7 @@ describe("notifier-composio", () => {
         defaultApp: "discord",
         mode: "webhook",
         webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
-        connectedAccountId: "ca_should_be_ignored",
+        connectedAccountId: "ca_discord_webhook",
       });
       await notifier.notify(makeEvent());
 
@@ -177,11 +202,17 @@ describe("notifier-composio", () => {
           arguments: expect.objectContaining({
             webhook_id: "1234567890",
             webhook_token: "webhook-token",
-            content: expect.any(String),
+            content: expect.stringContaining("Session Spawned"),
+            embeds: [
+              expect.objectContaining({
+                title: expect.stringContaining("Session Spawned"),
+              }),
+            ],
+            allowed_mentions: { parse: [] },
           }),
+          connectedAccountId: "ca_discord_webhook",
         }),
       );
-      expect(mockToolsExecute.mock.calls[0][1]).not.toHaveProperty("connectedAccountId");
     });
 
     it("uses webhook mode when Discord webhookUrl is configured without mode", async () => {
@@ -189,6 +220,7 @@ describe("notifier-composio", () => {
         composioApiKey: "k",
         defaultApp: "discord",
         webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
+        connectedAccountId: "ca_discord_webhook",
       });
       await notifier.notify(makeEvent());
 
@@ -224,10 +256,73 @@ describe("notifier-composio", () => {
           connectedAccountId: "ca_gmail",
           arguments: expect.objectContaining({
             recipient_email: "test@test.com",
-            subject: "Agent Orchestrator Notification",
+            subject: "[AO] Session Spawned: app-1",
+            is_html: true,
           }),
         }),
       );
+
+      const callArgs = mockToolsExecute.mock.calls[0][1];
+      expect(callArgs.arguments.body).toContain("<!doctype html>");
+      expect(callArgs.arguments.body).toContain("Session Spawned");
+      expect(callArgs.arguments.body).toContain("Session app-1 spawned successfully");
+    });
+
+    it("formats Gmail CI notifications as a professional HTML email brief", async () => {
+      const notifier = create({
+        composioApiKey: "k",
+        defaultApp: "gmail",
+        emailTo: "test@test.com",
+        connectedAccountId: "ca_gmail",
+      });
+      await notifier.notify(
+        makeEvent({
+          type: "ci.failing",
+          priority: "action",
+          sessionId: "demo-agent-19",
+          projectId: "demo",
+          message: "CI is failing on PR #1579",
+          data: makeV3Data({
+            subject: {
+              session: { id: "demo-agent-19", projectId: "demo" },
+              pr: {
+                number: 1579,
+                title: "Normalize AO notifier payloads",
+                url: "https://github.com/ComposioHQ/agent-orchestrator/pull/1579",
+                branch: "ao/demo-notifier-harness",
+                baseBranch: "main",
+              },
+              issue: {
+                id: "AO-1579",
+                title: "Make AO notification payloads API-grade",
+              },
+            },
+            ci: {
+              status: "failing",
+              failedChecks: [
+                {
+                  name: "typecheck",
+                  status: "failed",
+                  conclusion: "FAILURE",
+                  url: "https://github.com/ComposioHQ/agent-orchestrator/pull/1579/checks",
+                },
+              ],
+            },
+          }),
+        }),
+      );
+
+      const callArgs = mockToolsExecute.mock.calls[0][1];
+      expect(callArgs.arguments.subject).toBe("[AO] CI failing on PR #1579");
+      expect(callArgs.arguments.is_html).toBe(true);
+      expect(callArgs.arguments.body).toContain("<!doctype html>");
+      expect(callArgs.arguments.body).toContain("CI is failing on PR #1579");
+      expect(callArgs.arguments.body).toContain("Normalize AO notifier payloads");
+      expect(callArgs.arguments.body).toContain("Action required");
+      expect(callArgs.arguments.body).toContain("Pull Request");
+      expect(callArgs.arguments.body).toContain("#1579 - Normalize AO notifier payloads");
+      expect(callArgs.arguments.body).toContain("typecheck: failed/FAILURE");
+      expect(callArgs.arguments.body).not.toContain("👉");
     });
 
     it("routes to channelId when set", async () => {
@@ -246,12 +341,36 @@ describe("notifier-composio", () => {
       expect(callArgs.arguments.channel).toBe("general");
     });
 
-    it("includes priority emoji in Slack markdown text", async () => {
+    it("formats Slack notifications as rich attachments", async () => {
       const notifier = create({ composioApiKey: "k" });
       await notifier.notify(makeEvent({ priority: "urgent" }));
 
       const callArgs = mockToolsExecute.mock.calls[0][1];
-      expect(callArgs.arguments.markdown_text).toContain("\u{1F6A8}");
+      expect(callArgs.arguments.markdown_text).toContain("Urgent");
+      expect(callArgs.arguments.text).toContain("Urgent");
+      expect(callArgs.arguments.unfurl_links).toBe(false);
+      expect(callArgs.arguments.unfurl_media).toBe(false);
+
+      const attachment = getSlackAttachment();
+      expect(attachment.color).toBe("#E01E5A");
+      expect(attachment.fallback).toContain("Urgent");
+      expect(attachment.blocks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "header",
+            text: expect.objectContaining({
+              text: expect.stringContaining(":rotating_light:"),
+            }),
+          }),
+          expect.objectContaining({
+            type: "section",
+            fields: expect.arrayContaining([
+              expect.objectContaining({ text: expect.stringContaining("*Project*") }),
+              expect.objectContaining({ text: expect.stringContaining("my-project") }),
+            ]),
+          }),
+        ]),
+      );
     });
 
     it("includes subject.pr.url when present in v3 data", async () => {
@@ -267,16 +386,23 @@ describe("notifier-composio", () => {
         }),
       );
 
-      const callArgs = mockToolsExecute.mock.calls[0][1];
-      expect(callArgs.arguments.markdown_text).toContain("https://github.com/pull/1");
+      expect(getSlackActions()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.objectContaining({ text: "View PR" }),
+            url: "https://github.com/pull/1",
+            style: "primary",
+          }),
+        ]),
+      );
     });
 
     it("ignores legacy flat prUrl", async () => {
       const notifier = create({ composioApiKey: "k" });
       await notifier.notify(makeEvent({ data: { prUrl: "https://github.com/pull/1" } }));
 
-      const callArgs = mockToolsExecute.mock.calls[0][1];
-      expect(callArgs.arguments.markdown_text).not.toContain("PR:");
+      expect(getSlackActions()).toEqual([]);
+      expect(getSlackAttachment().fallback).not.toContain("https://github.com/pull/1");
     });
 
     it("passes userId, connectedAccountId, and default Slack tool version", async () => {
@@ -373,9 +499,21 @@ describe("notifier-composio", () => {
       ];
       await notifier.notifyWithActions!(makeEvent(), actions);
 
-      const callArgs = mockToolsExecute.mock.calls[0][1];
-      expect(callArgs.arguments.markdown_text).toContain("Merge");
-      expect(callArgs.arguments.markdown_text).toContain("Kill");
+      expect(getSlackActions()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.objectContaining({ text: "Merge" }),
+            url: "https://github.com/merge",
+            style: "primary",
+          }),
+          expect.objectContaining({
+            text: expect.objectContaining({ text: "Kill" }),
+            action_id: "ao_kill_1",
+            value: "/api/kill",
+            style: "danger",
+          }),
+        ]),
+      );
     });
 
     it("includes URL actions as links", async () => {
@@ -383,8 +521,14 @@ describe("notifier-composio", () => {
       const actions: NotifyAction[] = [{ label: "View PR", url: "https://github.com/pull/42" }];
       await notifier.notifyWithActions!(makeEvent(), actions);
 
-      const callArgs = mockToolsExecute.mock.calls[0][1];
-      expect(callArgs.arguments.markdown_text).toContain("https://github.com/pull/42");
+      expect(getSlackActions()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.objectContaining({ text: "View PR" }),
+            url: "https://github.com/pull/42",
+          }),
+        ]),
+      );
     });
 
     it("renders callback-only actions without URL", async () => {
@@ -392,8 +536,15 @@ describe("notifier-composio", () => {
       const actions: NotifyAction[] = [{ label: "Restart", callbackEndpoint: "/api/restart" }];
       await notifier.notifyWithActions!(makeEvent(), actions);
 
-      const callArgs = mockToolsExecute.mock.calls[0][1];
-      expect(callArgs.arguments.markdown_text).toContain("- Restart");
+      expect(getSlackActions()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.objectContaining({ text: "Restart" }),
+            action_id: "ao_restart_0",
+            value: "/api/restart",
+          }),
+        ]),
+      );
     });
 
     it("uses correct tool slug for configured app", async () => {
@@ -409,9 +560,82 @@ describe("notifier-composio", () => {
 
       expect(mockToolsExecute).toHaveBeenCalledWith(
         "DISCORDBOT_CREATE_MESSAGE",
-        expect.any(Object),
+        expect.objectContaining({
+          arguments: expect.objectContaining({
+            embeds: [
+              expect.objectContaining({
+                fields: expect.arrayContaining([
+                  expect.objectContaining({
+                    name: "Actions",
+                    value: expect.stringContaining("[Test](https://example.com)"),
+                  }),
+                ]),
+              }),
+            ],
+            components: [
+              {
+                type: 1,
+                components: [{ type: 2, style: 5, label: "Test", url: "https://example.com" }],
+              },
+            ],
+          }),
+        }),
       );
       warnSpy.mockRestore();
+    });
+
+    it("formats Gmail actions with a professional subject and action links", async () => {
+      const notifier = create({
+        composioApiKey: "k",
+        defaultApp: "gmail",
+        emailTo: "test@test.com",
+        connectedAccountId: "ca_gmail",
+      });
+      const actions: NotifyAction[] = [
+        { label: "Open dashboard", url: "http://localhost:3000" },
+        { label: "Acknowledge", callbackEndpoint: "http://localhost:3000/api/ack" },
+      ];
+      await notifier.notifyWithActions!(
+        makeEvent({
+          type: "merge.ready",
+          priority: "action",
+          sessionId: "demo-agent-29",
+          projectId: "demo",
+          message: "PR #1579 is ready to merge",
+          data: makeV3Data({
+            subject: {
+              session: { id: "demo-agent-29", projectId: "demo" },
+              pr: {
+                number: 1579,
+                title: "Normalize AO notifier payloads",
+                url: "https://github.com/ComposioHQ/agent-orchestrator/pull/1579",
+              },
+            },
+            transition: { kind: "session_status", from: "approved", to: "mergeable" },
+            ci: { status: "passing" },
+            review: { decision: "approved" },
+            merge: { ready: true, conflicts: false, isBehind: false },
+          }),
+        }),
+        actions,
+      );
+
+      const callArgs = mockToolsExecute.mock.calls[0][1];
+      expect(callArgs.arguments.subject).toBe("[AO] PR #1579 ready to merge");
+      expect(callArgs.arguments.is_html).toBe(true);
+      expect(callArgs.arguments.body).toContain("<!doctype html>");
+      expect(callArgs.arguments.body).toContain("Ready to merge");
+      expect(callArgs.arguments.body).toContain("PR #1579 is ready to merge");
+      expect(callArgs.arguments.body).toContain("Normalize AO notifier payloads");
+      expect(callArgs.arguments.body).toContain("View pull request");
+      expect(callArgs.arguments.body).toContain("Transition");
+      expect(callArgs.arguments.body).toContain("approved -&gt; mergeable");
+      expect(callArgs.arguments.body).toContain("Passing");
+      expect(callArgs.arguments.body).toContain("Approved");
+      expect(callArgs.arguments.body).toContain("Ready");
+      expect(callArgs.arguments.body).toContain("Actions");
+      expect(callArgs.arguments.body).toContain('href="http://localhost:3000"');
+      expect(callArgs.arguments.body).toContain('href="http://localhost:3000/api/ack"');
     });
   });
 
@@ -432,7 +656,7 @@ describe("notifier-composio", () => {
       expect(callArgs.arguments.channel).toBe("override");
     });
 
-    it("uses Gmail recipient_email for plain post messages", async () => {
+    it("uses Gmail recipient_email for HTML post messages", async () => {
       const notifier = create({
         composioApiKey: "k",
         defaultApp: "gmail",
@@ -447,11 +671,15 @@ describe("notifier-composio", () => {
           connectedAccountId: "ca_gmail",
           arguments: {
             recipient_email: "test@test.com",
-            subject: "Agent Orchestrator Notification",
-            body: "Hello from AO",
+            subject: "Agent Orchestrator Message",
+            body: expect.stringContaining("<!doctype html>"),
+            is_html: true,
           },
         }),
       );
+
+      const callArgs = mockToolsExecute.mock.calls[0][1];
+      expect(callArgs.arguments.body).toContain("Hello from AO");
     });
 
     it("returns null", async () => {
@@ -494,7 +722,7 @@ describe("notifier-composio", () => {
 
     it("uses mail setup guidance for Gmail connection errors", async () => {
       mockToolsExecute.mockRejectedValueOnce(
-        new Error("No connected account found for user ao-agent for toolkit gmail"),
+        new Error("No connected account found for user aoagent for toolkit gmail"),
       );
 
       const notifier = create({

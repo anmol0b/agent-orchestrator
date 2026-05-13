@@ -13,16 +13,20 @@ import {
 import { isRetryableHttpStatus, normalizeRetryConfig, validateUrl } from "@aoagents/ao-core/utils";
 
 /**
- * Read the hooks token from ~/.openclaw/openclaw.json as a fallback for
- * daemon contexts where the shell profile (and OPENCLAW_HOOKS_TOKEN) isn't
- * sourced. This file is written by `ao setup openclaw` and lives outside
- * the project directory so it's never committed to version control.
+ * Read the hooks token from OpenClaw's config. AO treats OpenClaw as the
+ * owner of hooks.token; setup only points the notifier at this file.
  */
-function readTokenFromOpenClawConfig(): string | undefined {
+function expandHomePath(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+  return path;
+}
+
+function readTokenFromOpenClawConfig(configPath?: string): string | undefined {
   try {
-    const configPath = join(homedir(), ".openclaw", "openclaw.json");
-    if (!existsSync(configPath)) return undefined;
-    const raw = readFileSync(configPath, "utf-8");
+    const resolvedPath = expandHomePath(configPath ?? join(homedir(), ".openclaw", "openclaw.json"));
+    if (!existsSync(resolvedPath)) return undefined;
+    const raw = readFileSync(resolvedPath, "utf-8");
     const config = JSON.parse(raw) as Record<string, unknown>;
     const token = (config.hooks as Record<string, unknown> | undefined)?.token;
     return typeof token === "string" && token ? token : undefined;
@@ -240,10 +244,12 @@ export function create(config?: Record<string, unknown>): Notifier {
   const url =
     (typeof config?.url === "string" ? config.url : undefined) ??
     "http://127.0.0.1:18789/hooks/agent";
+  const openclawConfigPath =
+    typeof config?.openclawConfigPath === "string" ? config.openclawConfigPath : undefined;
   const token =
     resolveEnvVarToken(config?.token) ??
-    process.env.OPENCLAW_HOOKS_TOKEN ??
-    readTokenFromOpenClawConfig();
+    readTokenFromOpenClawConfig(openclawConfigPath) ??
+    process.env.OPENCLAW_HOOKS_TOKEN;
   const senderName = typeof config?.name === "string" ? config.name : "AO";
   const sessionKeyPrefix =
     typeof config?.sessionKeyPrefix === "string" ? config.sessionKeyPrefix : "hook:ao:";
@@ -258,7 +264,7 @@ export function create(config?: Record<string, unknown>): Notifier {
   if (!token) {
     console.warn(
       "[notifier-openclaw] No token configured.\n" +
-        "  Set OPENCLAW_HOOKS_TOKEN env var, or add token to your notifier config.\n" +
+        "  Add hooks.token to your OpenClaw config, or set notifiers.openclaw.openclawConfigPath.\n" +
         "  Run: ao setup openclaw",
     );
   }

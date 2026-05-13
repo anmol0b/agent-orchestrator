@@ -402,9 +402,13 @@ describe("notifier-desktop", () => {
 
       const encoded = mockExecFile.mock.calls[0][1][1] as string;
       const payload = JSON.parse(Buffer.from(encoded, "base64").toString("utf-8")) as {
+        notificationId: string;
+        threadId: string;
         defaultOpenUrl: string;
         event: { id: string; sessionId: string };
       };
+      expect(payload.notificationId).toMatch(/^evt-native\./);
+      expect(payload.threadId).toBe("ao.notifications");
       expect(payload.defaultOpenUrl).toBe("http://localhost:3001");
       expect(payload.event).toMatchObject({ id: "evt-native", sessionId: "s-9" });
     });

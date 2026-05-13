@@ -121,7 +121,8 @@ notifiers:
   openclaw:
     plugin: openclaw
     # url: http://127.0.0.1:18789/hooks/agent
-    # token: \${OPENCLAW_HOOKS_TOKEN}
+    # openclawConfigPath: ~/.openclaw/openclaw.json
+    # OpenClaw owns hooks.token in openclaw.json
     # Run 'ao setup openclaw' for guided configuration
   composio:
     plugin: composio
@@ -138,7 +139,6 @@ notifiers:
     # mode: webhook
     # webhookUrl: https://discord.com/api/webhooks/...
     # userId: ao-local
-    # connectedAccountId: ca_...
     # composioApiKey: ak_... # optional; otherwise uses COMPOSIO_API_KEY
   composio-discord-bot:
     plugin: composio

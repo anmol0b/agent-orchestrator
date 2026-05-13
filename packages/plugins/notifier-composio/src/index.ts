@@ -200,7 +200,16 @@ function normalizeSlackChannel(channel: string | undefined): string | undefined 
 }
 
 function formatUnknownError(value: unknown): string {
-  if (value instanceof Error) return value.message;
+  if (value instanceof Error) {
+    const cause = (value as Error & { cause?: unknown }).cause;
+    if (cause !== undefined) {
+      const causeMessage = formatUnknownError(cause);
+      if (causeMessage && !value.message.includes(causeMessage)) {
+        return `${value.message}: ${causeMessage}`;
+      }
+    }
+    return value.message;
+  }
   if (typeof value === "string") return value;
   try {
     return JSON.stringify(value);
@@ -214,6 +223,11 @@ function formatComposioError(err: unknown, app: ComposioApp, discordMode?: Disco
   const lower = message.toLowerCase();
   if (lower.includes("connected account") || lower.includes("could not find a connection")) {
     const setupCommand = setupCommandForApp(app, discordMode);
+    if (app === "discord" && discordMode === "webhook") {
+      return new Error(
+        `[notifier-composio] ${message}. Run \`${setupCommand}\` to refresh the Discord webhook config. Webhook mode does not use connectedAccountId.`,
+      );
+    }
     return new Error(
       `[notifier-composio] ${message}. Run \`${setupCommand}\`, connect ${app} in Composio, or set connectedAccountId / userId. entityId is still supported as an alias for userId.`,
     );
@@ -319,10 +333,13 @@ export function create(config?: Record<string, unknown>): Notifier {
     process.env.COMPOSIO_USER_ID ??
     process.env.COMPOSIO_ENTITY_ID ??
     "ao-local";
-  const connectedAccountId = stringConfig(config, "connectedAccountId");
   const emailTo = stringConfig(config, "emailTo");
   const toolVersion = resolveToolVersion(config, defaultApp);
   const forceSkipVersionCheck = boolConfig(config, "dangerouslySkipVersionCheck");
+  const connectedAccountId =
+    defaultApp === "discord" && discordMode === "webhook"
+      ? undefined
+      : stringConfig(config, "connectedAccountId");
 
   const clientOverride =
     config?._clientOverride !== undefined && config._clientOverride !== null
@@ -437,12 +454,21 @@ export function create(config?: Record<string, unknown>): Notifier {
     }
   }
 
+  function assertGmailConnectedAccount(): void {
+    if (defaultApp === "gmail" && !connectedAccountId) {
+      throw new Error(
+        '[notifier-composio] connectedAccountId is required when defaultApp is "gmail". Connect Gmail in Composio, then run `ao setup composio-mail`, or set notifiers.<name>.connectedAccountId.',
+      );
+    }
+  }
+
   return {
     name: "composio",
 
     async notify(event: OrchestratorEvent): Promise<void> {
       const composio = await getClient();
       if (!composio) return;
+      assertGmailConnectedAccount();
 
       const text = formatNotifyText(event);
       const toolSlug = resolveToolSlug(defaultApp, discordMode);
@@ -462,6 +488,7 @@ export function create(config?: Record<string, unknown>): Notifier {
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
       const composio = await getClient();
       if (!composio) return;
+      assertGmailConnectedAccount();
 
       const text = formatActionsText(event, actions);
       const toolSlug = resolveToolSlug(defaultApp, discordMode);
@@ -481,6 +508,7 @@ export function create(config?: Record<string, unknown>): Notifier {
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       const composio = await getClient();
       if (!composio) return null;
+      assertGmailConnectedAccount();
 
       const channel = context?.channel ?? channelId ?? channelName;
       const slackChannel = normalizeSlackChannel(channel);
@@ -488,7 +516,7 @@ export function create(config?: Record<string, unknown>): Notifier {
 
       const args: Record<string, unknown> =
         defaultApp === "gmail"
-          ? { to: emailTo ?? "", subject: GMAIL_SUBJECT, body: message }
+          ? { recipient_email: emailTo ?? "", subject: GMAIL_SUBJECT, body: message }
           : defaultApp === "discord"
             ? buildToolArgs(
                 defaultApp,

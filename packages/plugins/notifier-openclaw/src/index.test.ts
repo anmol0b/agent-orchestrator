@@ -57,23 +57,38 @@ describe("notifier-openclaw", () => {
 
   it("uses token from OPENCLAW_HOOKS_TOKEN env", async () => {
     process.env.OPENCLAW_HOOKS_TOKEN = "env-token";
+    const missingOpenClawConfigPath = join(tempConfigDir, "missing-openclaw.json");
 
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create();
+    const notifier = create({ openclawConfigPath: missingOpenClawConfigPath });
     await notifier.notify(makeEvent());
 
     const headers = fetchMock.mock.calls[0][1].headers;
     expect(headers["Authorization"]).toBe("Bearer env-token");
   });
 
+  it("uses hooks token from configured OpenClaw config path", async () => {
+    const openclawConfigPath = join(tempConfigDir, "openclaw.json");
+    writeFileSync(openclawConfigPath, JSON.stringify({ hooks: { token: "config-token" } }));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ openclawConfigPath });
+    await notifier.notify(makeEvent());
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers["Authorization"]).toBe("Bearer config-token");
+  });
+
   it("warns and sends without Authorization when token missing", async () => {
+    const missingOpenClawConfigPath = join(tempConfigDir, "missing-openclaw.json");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create();
+    const notifier = create({ openclawConfigPath: missingOpenClawConfigPath });
     await notifier.notify(makeEvent());
 
     const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;

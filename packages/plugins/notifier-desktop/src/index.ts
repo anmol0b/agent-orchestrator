@@ -22,6 +22,7 @@ export const manifest = {
 export { escapeAppleScript } from "@aoagents/ao-core";
 
 type DesktopBackend = "auto" | "ao-app" | "terminal-notifier" | "osascript";
+let nativeNotificationSequence = 0;
 
 interface MacDeliveryOptions {
   backend: DesktopBackend;
@@ -60,6 +61,15 @@ function defaultMacAppPath(): string {
 
 function macAppExecutable(appPath: string): string {
   return join(appPath, "Contents", "MacOS", "ao-notifier");
+}
+
+function nativeNotificationId(event: OrchestratorEvent): string {
+  nativeNotificationSequence += 1;
+  return `${event.id}.${Date.now()}.${process.pid}.${nativeNotificationSequence}`;
+}
+
+function nativeThreadId(): string {
+  return "ao.notifications";
 }
 
 function detectAoNotifierApp(appPath: string): boolean {
@@ -132,6 +142,8 @@ function sendNotification(
           (action): action is NotifyAction & { url: string } => typeof action.url === "string",
         );
         const payload = {
+          notificationId: nativeNotificationId(event),
+          threadId: nativeThreadId(),
           title,
           body: message,
           sound: options.sound,

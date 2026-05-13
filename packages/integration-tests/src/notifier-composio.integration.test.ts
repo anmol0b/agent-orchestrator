@@ -75,6 +75,7 @@ describe("notifier-composio integration", () => {
         defaultApp: "discord",
         mode: "webhook",
         webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
+        connectedAccountId: "ca_should_be_ignored",
         _clientOverride: mockClient,
       });
       await notifier.notify(makeEvent());
@@ -88,6 +89,7 @@ describe("notifier-composio integration", () => {
           }),
         }),
       );
+      expect(mockToolsExecute.mock.calls[0][1]).not.toHaveProperty("connectedAccountId");
     });
 
     it("gmail app routes to GMAIL_SEND_EMAIL with recipient/subject/body", async () => {
@@ -95,6 +97,7 @@ describe("notifier-composio integration", () => {
         composioApiKey: "key",
         defaultApp: "gmail",
         emailTo: "admin@example.com",
+        connectedAccountId: "ca_gmail",
         _clientOverride: mockClient,
       });
       await notifier.notify(makeEvent());
@@ -102,6 +105,7 @@ describe("notifier-composio integration", () => {
       expect(mockToolsExecute).toHaveBeenCalledWith(
         "GMAIL_SEND_EMAIL",
         expect.objectContaining({
+          connectedAccountId: "ca_gmail",
           version: "20260506_01",
           arguments: expect.objectContaining({
             recipient_email: "admin@example.com",

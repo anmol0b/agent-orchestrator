@@ -5,6 +5,7 @@ import UserNotifications
 let appName = "AO Notifier"
 let appVersion = "0.6.0"
 let bundleId = "com.aoagents.notifier"
+let defaultCategoryId = "ao.notification"
 
 struct NotifyPayload: Codable {
   struct Event: Codable {
@@ -24,6 +25,8 @@ struct NotifyPayload: Codable {
   let title: String
   let body: String
   let sound: Bool
+  let notificationId: String?
+  let threadId: String?
   let defaultOpenUrl: String?
   let event: Event
   let actions: [Action]?
@@ -39,7 +42,6 @@ final class NotificationResponseDelegate: NSObject, UNUserNotificationCenterDele
     let actionIdentifier = response.actionIdentifier
 
     if actionIdentifier == UNNotificationDefaultActionIdentifier {
-      openUrl(userInfo["defaultOpenUrl"] as? String)
       completionHandler()
       return
     }
@@ -65,6 +67,17 @@ func printJson(_ pairs: [(String, String)]) {
     "\"\(key)\":\(jsonEscape(value))"
   }.joined(separator: ",")
   print("{\(body)}")
+}
+
+func printJsonObject(_ value: Any) {
+  guard JSONSerialization.isValidJSONObject(value),
+    let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
+    let json = String(data: data, encoding: .utf8)
+  else {
+    print("{}")
+    return
+  }
+  print(json)
 }
 
 func openUrl(_ rawUrl: String?) {
@@ -113,6 +126,52 @@ func requestPermission() -> Bool {
   return granted
 }
 
+func waitForDeliveredNotifications(_ center: UNUserNotificationCenter) -> [UNNotification] {
+  let semaphore = DispatchSemaphore(value: 0)
+  var resolved: [UNNotification] = []
+  center.getDeliveredNotifications { notifications in
+    resolved = notifications
+    semaphore.signal()
+  }
+  _ = semaphore.wait(timeout: .now() + 5)
+  return resolved
+}
+
+func printDeliveredNotifications() {
+  let delivered = waitForDeliveredNotifications(UNUserNotificationCenter.current())
+  let rows = delivered.map { notification -> [String: Any] in
+    let content = notification.request.content
+    return [
+      "identifier": notification.request.identifier,
+      "threadIdentifier": content.threadIdentifier,
+      "categoryIdentifier": content.categoryIdentifier,
+      "title": content.title,
+      "body": content.body,
+      "eventId": content.userInfo["eventId"] as? String ?? "",
+      "eventType": content.userInfo["eventType"] as? String ?? "",
+      "sessionId": content.userInfo["sessionId"] as? String ?? "",
+      "projectId": content.userInfo["projectId"] as? String ?? "",
+      "notificationId": content.userInfo["notificationId"] as? String ?? "",
+      "threadId": content.userInfo["threadId"] as? String ?? "",
+    ]
+  }
+  printJsonObject([
+    "count": rows.count,
+    "notifications": rows,
+  ])
+}
+
+func clearDeliveredNotifications() {
+  let center = UNUserNotificationCenter.current()
+  let identifiers = waitForDeliveredNotifications(center).map { $0.request.identifier }
+  if identifiers.isEmpty {
+    return
+  }
+
+  center.removeDeliveredNotifications(withIdentifiers: identifiers)
+  Thread.sleep(forTimeInterval: 0.5)
+}
+
 func decodePayload(_ base64: String) throws -> NotifyPayload {
   guard let data = Data(base64Encoded: base64) else {
     throw NSError(domain: appName, code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid base64 payload"])
@@ -120,45 +179,64 @@ func decodePayload(_ base64: String) throws -> NotifyPayload {
   return try JSONDecoder().decode(NotifyPayload.self, from: data)
 }
 
+func fallbackNotificationId(_ eventId: String) -> String {
+  return "\(eventId).\(UUID().uuidString)"
+}
+
+func fallbackThreadId() -> String {
+  return "ao.notifications"
+}
+
 func sendNotification(_ payload: NotifyPayload) throws {
   let center = UNUserNotificationCenter.current()
   center.delegate = delegate
 
-  let urlActions = (payload.actions ?? []).enumerated().compactMap { index, action -> UNNotificationAction? in
-    guard action.url != nil else { return nil }
+  var actionUrls: [String: String] = [:]
+  let configuredUrlActions = (payload.actions ?? []).enumerated().compactMap { index, action -> UNNotificationAction? in
+    guard let url = action.url else { return nil }
+    let identifier = "ao.action.\(index)"
+    actionUrls[identifier] = url
     return UNNotificationAction(
-      identifier: "ao.action.\(index)",
+      identifier: identifier,
       title: action.label,
       options: [.foreground]
     )
   }
 
-  let categoryId = "ao.event.\(payload.event.id)"
-  if !urlActions.isEmpty {
-    let category = UNNotificationCategory(
-      identifier: categoryId,
-      actions: urlActions,
-      intentIdentifiers: [],
-      options: []
-    )
-    center.setNotificationCategories([category])
+  let urlActions: [UNNotificationAction]
+  let categoryId: String
+  if configuredUrlActions.isEmpty, let defaultOpenUrl = payload.defaultOpenUrl {
+    let identifier = "ao.openDashboard"
+    actionUrls[identifier] = defaultOpenUrl
+    urlActions = [
+      UNNotificationAction(
+        identifier: identifier,
+        title: "Open Dashboard",
+        options: [.foreground]
+      )
+    ]
+    categoryId = defaultCategoryId
+  } else {
+    urlActions = configuredUrlActions
+    categoryId = urlActions.isEmpty ? defaultCategoryId : "ao.event.\(payload.event.id)"
   }
+
+  let category = UNNotificationCategory(
+    identifier: categoryId,
+    actions: urlActions,
+    intentIdentifiers: [],
+    options: []
+  )
+  center.setNotificationCategories([category])
 
   let content = UNMutableNotificationContent()
+  let threadId = payload.threadId ?? fallbackThreadId()
   content.title = payload.title
   content.body = payload.body
+  content.threadIdentifier = threadId
+  content.categoryIdentifier = categoryId
   if payload.sound {
     content.sound = .default
-  }
-  if !urlActions.isEmpty {
-    content.categoryIdentifier = categoryId
-  }
-
-  var actionUrls: [String: String] = [:]
-  for (index, action) in (payload.actions ?? []).enumerated() {
-    if let url = action.url {
-      actionUrls["ao.action.\(index)"] = url
-    }
   }
 
   var userInfo: [String: Any] = [
@@ -166,14 +244,17 @@ func sendNotification(_ payload: NotifyPayload) throws {
     "eventType": payload.event.type,
     "sessionId": payload.event.sessionId,
     "projectId": payload.event.projectId,
+    "threadId": threadId,
     "actionUrls": actionUrls,
   ]
+  let requestId = payload.notificationId ?? fallbackNotificationId(payload.event.id)
+  userInfo["notificationId"] = requestId
   if let defaultOpenUrl = payload.defaultOpenUrl {
     userInfo["defaultOpenUrl"] = defaultOpenUrl
   }
   content.userInfo = userInfo
 
-  let request = UNNotificationRequest(identifier: payload.event.id, content: content, trigger: nil)
+  let request = UNNotificationRequest(identifier: requestId, content: content, trigger: nil)
   let semaphore = DispatchSemaphore(value: 0)
   var sendError: Error?
   center.add(request) { error in
@@ -207,6 +288,16 @@ func runCommand(_ args: [String]) -> Int32 {
     case "--permission-status-json":
       printJson([
         ("status", permissionStatus()),
+        ("bundleId", bundleId),
+      ])
+      return 0
+    case "--delivered-json":
+      printDeliveredNotifications()
+      return 0
+    case "--clear-delivered":
+      clearDeliveredNotifications()
+      printJson([
+        ("cleared", "true"),
         ("bundleId", bundleId),
       ])
       return 0

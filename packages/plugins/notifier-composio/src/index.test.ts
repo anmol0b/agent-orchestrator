@@ -158,6 +158,7 @@ describe("notifier-composio", () => {
         defaultApp: "discord",
         mode: "webhook",
         webhookUrl: "https://discord.com/api/webhooks/1234567890/webhook-token",
+        connectedAccountId: "ca_should_be_ignored",
       });
       await notifier.notify(makeEvent());
 
@@ -171,6 +172,7 @@ describe("notifier-composio", () => {
           }),
         }),
       );
+      expect(mockToolsExecute.mock.calls[0][1]).not.toHaveProperty("connectedAccountId");
     });
 
     it("uses webhook mode when Discord webhookUrl is configured without mode", async () => {
@@ -203,12 +205,14 @@ describe("notifier-composio", () => {
         composioApiKey: "k",
         defaultApp: "gmail",
         emailTo: "test@test.com",
+        connectedAccountId: "ca_gmail",
       });
       await notifier.notify(makeEvent());
 
       expect(mockToolsExecute).toHaveBeenCalledWith(
         "GMAIL_SEND_EMAIL",
         expect.objectContaining({
+          connectedAccountId: "ca_gmail",
           arguments: expect.objectContaining({
             recipient_email: "test@test.com",
             subject: "Agent Orchestrator Notification",
@@ -327,6 +331,7 @@ describe("notifier-composio", () => {
         composioApiKey: "k",
         defaultApp: "gmail",
         emailTo: "test@test.com",
+        connectedAccountId: "ca_gmail",
       });
       await notifier.notify(makeEvent());
 
@@ -409,6 +414,28 @@ describe("notifier-composio", () => {
       expect(callArgs.arguments.channel).toBe("override");
     });
 
+    it("uses Gmail recipient_email for plain post messages", async () => {
+      const notifier = create({
+        composioApiKey: "k",
+        defaultApp: "gmail",
+        emailTo: "test@test.com",
+        connectedAccountId: "ca_gmail",
+      });
+      await notifier.post!("Hello from AO");
+
+      expect(mockToolsExecute).toHaveBeenCalledWith(
+        "GMAIL_SEND_EMAIL",
+        expect.objectContaining({
+          connectedAccountId: "ca_gmail",
+          arguments: {
+            recipient_email: "test@test.com",
+            subject: "Agent Orchestrator Notification",
+            body: "Hello from AO",
+          },
+        }),
+      );
+    });
+
     it("returns null", async () => {
       const notifier = create({ composioApiKey: "k" });
       const result = await notifier.post!("test");
@@ -456,9 +483,21 @@ describe("notifier-composio", () => {
         composioApiKey: "k",
         defaultApp: "gmail",
         emailTo: "test@test.com",
+        connectedAccountId: "ca_gmail",
       });
 
       await expect(notifier.notify(makeEvent())).rejects.toThrow("ao setup composio-mail");
+    });
+
+    it("requires connectedAccountId before executing Gmail notifications", async () => {
+      const notifier = create({
+        composioApiKey: "k",
+        defaultApp: "gmail",
+        emailTo: "test@test.com",
+      });
+
+      await expect(notifier.notify(makeEvent())).rejects.toThrow("connectedAccountId is required");
+      expect(mockToolsExecute).not.toHaveBeenCalled();
     });
 
     it("rejects invalid test client overrides", () => {

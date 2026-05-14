@@ -12,7 +12,7 @@
  * see ao-118 plan PR B).
  */
 
-import { isTerminalSession, loadConfig } from "@aoagents/ao-core";
+import { isTerminalSession, loadConfig, sweepDaemonChildren } from "@aoagents/ao-core";
 import { stopBunTmpJanitor } from "./bun-tmp-janitor.js";
 import { getSessionManager } from "./create-session-manager.js";
 import { stopAllLifecycleWorkers } from "./lifecycle-service.js";
@@ -35,6 +35,10 @@ export interface ShutdownContext {
 // would each race to writeLastStop / unregister / process.exit on signal).
 let handlersInstalled = false;
 let shuttingDown = false;
+
+export function isShutdownInProgress(): boolean {
+  return shuttingDown;
+}
 
 /**
  * Install SIGINT/SIGTERM handlers. Process-wide idempotent — calling
@@ -105,6 +109,7 @@ export function installShutdownHandlers(ctx: ShutdownContext): void {
           });
         }
 
+        await sweepDaemonChildren();
         await unregister();
       } catch {
         // Best-effort — always exit even if cleanup fails

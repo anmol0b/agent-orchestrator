@@ -9,7 +9,12 @@ import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { isWindows, killProcessTree, spawnManagedDaemonChild } from "@aoagents/ao-core";
+import {
+  isWindows,
+  killProcessTree,
+  markDaemonShutdownHandlerInstalled,
+  spawnManagedDaemonChild,
+} from "@aoagents/ao-core";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -155,5 +160,6 @@ function cleanup(): void {
   }
 }
 
+markDaemonShutdownHandlerInstalled();
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);

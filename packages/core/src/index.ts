@@ -415,6 +415,7 @@ export {
   unregisterDaemonChild,
   getDaemonChildren,
   clearDaemonChildrenRegistry,
+  markDaemonShutdownHandlerInstalled,
   registerChildReaper,
   spawnManagedDaemonChild,
   sweepDaemonChildren,

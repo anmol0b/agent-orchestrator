@@ -12,7 +12,12 @@
  * see ao-118 plan PR B).
  */
 
-import { isTerminalSession, loadConfig, sweepDaemonChildren } from "@aoagents/ao-core";
+import {
+  isTerminalSession,
+  loadConfig,
+  markDaemonShutdownHandlerInstalled,
+  sweepDaemonChildren,
+} from "@aoagents/ao-core";
 import { stopBunTmpJanitor } from "./bun-tmp-janitor.js";
 import { getSessionManager } from "./create-session-manager.js";
 import { stopAllLifecycleWorkers } from "./lifecycle-service.js";
@@ -49,6 +54,7 @@ export function isShutdownInProgress(): boolean {
 export function installShutdownHandlers(ctx: ShutdownContext): void {
   if (handlersInstalled) return;
   handlersInstalled = true;
+  markDaemonShutdownHandlerInstalled();
 
   const shutdown = (signal: NodeJS.Signals): void => {
     if (shuttingDown) return;

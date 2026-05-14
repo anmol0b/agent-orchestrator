@@ -218,6 +218,17 @@ function pruneSweptDaemonChildren(sweptPids: Set<number>): void {
 const reapedChildren = new WeakSet<ChildProcess>();
 const managedChildren = new Map<number, ChildProcess>();
 let managedSignalHandlersInstalled = false;
+let daemonShutdownHandlerInstalled = false;
+
+/**
+ * Tell the managed child reaper that this process owns an application-level
+ * SIGINT/SIGTERM shutdown path. The reaper will still forward signals to
+ * children, but it will not install its default 50ms fallback exit; the owning
+ * shutdown handler is responsible for exiting after its async cleanup finishes.
+ */
+export function markDaemonShutdownHandlerInstalled(): void {
+  daemonShutdownHandlerInstalled = true;
+}
 
 function terminateManagedChildren(): void {
   for (const [pid, child] of managedChildren) {
@@ -240,7 +251,7 @@ function installManagedSignalHandlers(): void {
     // Installing a signal listener disables Node's default "exit on signal"
     // behaviour. If no application-level shutdown handler is present, preserve
     // that default after forwarding the signal to managed children.
-    if (process.listenerCount(signal) <= 1) {
+    if (!daemonShutdownHandlerInstalled) {
       const exitCode = signal === "SIGINT" ? 130 : 0;
       setTimeout(() => process.exit(exitCode), 50);
     }

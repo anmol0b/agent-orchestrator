@@ -377,7 +377,10 @@ export function getActivitySignalReasonLabel(session: DashboardSession): string 
 }
 
 export function isDashboardSessionTerminated(session: DashboardSession): boolean {
-  return session.lifecycle?.sessionState === "terminated";
+  if (session.lifecycle) {
+    return session.lifecycle.sessionState === "terminated";
+  }
+  return session.status === "terminated" || session.status === "killed";
 }
 
 export function isDashboardSessionDone(session: DashboardSession): boolean {

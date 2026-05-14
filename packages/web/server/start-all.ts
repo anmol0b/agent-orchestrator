@@ -23,6 +23,7 @@ const __dirname = dirname(__filename);
 const pkgRoot = resolve(__dirname, "..");
 
 const children: ChildProcess[] = [];
+markDaemonShutdownHandlerInstalled();
 
 function log(label: string, msg: string): void {
   process.stdout.write(`[${label}] ${msg}\n`);
@@ -160,6 +161,5 @@ function cleanup(): void {
   }
 }
 
-markDaemonShutdownHandlerInstalled();
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);

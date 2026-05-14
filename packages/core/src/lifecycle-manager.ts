@@ -1995,6 +1995,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return formatCIFailureChecksFallback(failedChecks);
   }
 
+  async function getFailedCIChecks(
+    scm: SCM,
+    pr: PRInfo,
+    options: { allowFetch: boolean },
+  ): Promise<CICheck[] | null> {
+    const prKey = `${pr.owner}/${pr.repo}#${pr.number}`;
+    const cachedEnrichment = prEnrichmentCache.get(prKey);
+
+    let checks: CICheck[] | undefined = cachedEnrichment?.ciChecks;
+    if (checks === undefined && options.allowFetch) {
+      try {
+        checks = await scm.getCIChecks(pr);
+      } catch {
+        return null;
+      }
+    }
+
+    const failedChecks = checks?.filter(isFailedCICheck) ?? [];
+    return failedChecks.length > 0 ? failedChecks : null;
+  }
+
+  function makeCIFailureFingerprint(failedChecks: CICheck[]): string {
+    return makeFingerprint(failedChecks.map((c) => `${c.name}:${c.status}:${c.conclusion ?? ""}`));
+  }
+
   async function maybeDispatchCIFailureDetails(
     session: Session,
     _oldStatus: SessionStatus,
@@ -2035,30 +2060,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return;
     }
 
-    // Fetch individual CI checks for failure details.
-    // Use batch enrichment data when available to avoid an extra REST call;
-    // fall back to getCIChecks() when the batch didn't run this cycle.
-    const prKey = `${session.pr.owner}/${session.pr.repo}#${session.pr.number}`;
-    const cachedEnrichment = prEnrichmentCache.get(prKey);
+    const failedChecks = await getFailedCIChecks(scm, session.pr, { allowFetch: true });
+    if (!failedChecks) return;
 
-    let checks: CICheck[];
-    if (cachedEnrichment?.ciChecks !== undefined) {
-      checks = cachedEnrichment.ciChecks;
-    } else {
-      try {
-        checks = await scm.getCIChecks(session.pr);
-      } catch {
-        // Failed to fetch checks — skip this cycle
-        return;
-      }
-    }
-
-    const failedChecks = checks.filter(isFailedCICheck);
-    if (failedChecks.length === 0) return;
-
-    const ciFingerprint = makeFingerprint(
-      failedChecks.map((c) => `${c.name}:${c.status}:${c.conclusion ?? ""}`),
-    );
+    const ciFingerprint = makeCIFailureFingerprint(failedChecks);
     const lastCIFingerprint = session.metadata["lastCIFailureFingerprint"] ?? "";
     const lastCIDispatchHash = session.metadata["lastCIFailureDispatchHash"] ?? "";
 
@@ -2545,13 +2550,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             session.pr &&
             reactionConfig?.action === "send-to-agent"
           ) {
-            const prKey = `${session.pr.owner}/${session.pr.repo}#${session.pr.number}`;
-            const cachedData = prEnrichmentCache.get(prKey);
             const project = config.projects[session.projectId];
             const scm = project?.scm?.plugin ? registry.get<SCM>("scm", project.scm.plugin) : null;
-            if (cachedData?.ciChecks && scm) {
-              const failedChecks = cachedData.ciChecks.filter(isFailedCICheck);
-              if (failedChecks.length > 0) {
+            if (scm) {
+              const failedChecks = await getFailedCIChecks(scm, session.pr, { allowFetch: false });
+              if (failedChecks) {
                 reactionConfig = {
                   ...reactionConfig,
                   message: await formatCIFailureMessage(scm, session.pr, failedChecks),

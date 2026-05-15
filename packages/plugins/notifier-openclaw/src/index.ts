@@ -46,6 +46,7 @@ const UNREACHABLE_NETWORK_ERROR_CODES = [
   "ENOTFOUND",
   "ENETUNREACH",
 ] as const;
+type UnreachableNetworkErrorCode = (typeof UNREACHABLE_NETWORK_ERROR_CODES)[number];
 
 type WakeMode = "now" | "next-heartbeat";
 
@@ -124,8 +125,8 @@ function recordHealthFailure(path: string | null, error: unknown): void {
   writeHealthSummary(path, summary);
 }
 
-function isUnreachableNetworkError(error: Error): boolean {
-  return UNREACHABLE_NETWORK_ERROR_CODES.some((code) => error.message.includes(code));
+function getUnreachableNetworkErrorCode(error: Error): UnreachableNetworkErrorCode | undefined {
+  return UNREACHABLE_NETWORK_ERROR_CODES.find((code) => error.message.includes(code));
 }
 
 async function postWithRetry(
@@ -141,6 +142,7 @@ async function postWithRetry(
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    let shouldRethrowResponseError = false;
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -173,12 +175,14 @@ async function postWithRetry(
             `  Check that hooks.token in your OpenClaw config matches the token configured for AO.\n` +
             `  Reconfigure: ao setup openclaw`,
         );
+        shouldRethrowResponseError = true;
         throw lastError;
       }
 
       lastError = new Error(`OpenClaw webhook failed (${response.status}): ${body}`);
 
       if (!isRetryableHttpStatus(response.status)) {
+        shouldRethrowResponseError = true;
         throw lastError;
       }
 
@@ -188,10 +192,11 @@ async function postWithRetry(
         );
       }
     } catch (err) {
-      if (err === lastError) throw err;
+      if (shouldRethrowResponseError && err === lastError) throw err;
       lastError = err instanceof Error ? err : new Error(String(err));
 
-      if (isUnreachableNetworkError(lastError)) {
+      const unreachableCode = getUnreachableNetworkErrorCode(lastError);
+      if (unreachableCode && (unreachableCode === "ECONNREFUSED" || attempt >= retries)) {
         recordActivityEvent({
           sessionId: context.sessionId,
           source: "notifier",

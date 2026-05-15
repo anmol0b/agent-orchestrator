@@ -199,14 +199,14 @@ describe("POST /api/webhooks/[...slug] — activity events", () => {
     expect(call.data["reason"]).toBe("bad signature");
   });
 
-  it("distinguishes unsupported webhook verification from failed signatures", async () => {
+  it("keeps unsupported webhook verification as 404 while recording audit context", async () => {
     vi.mocked(mockRegistry.get).mockReturnValueOnce({
       ...mockSCM,
       verifyWebhook: undefined,
     } as unknown as SCM);
 
     const res = await webhookPOST(makeWebhookRequest());
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(404);
 
     expect(verifyWebhook).not.toHaveBeenCalled();
     expect(parseWebhook).not.toHaveBeenCalled();

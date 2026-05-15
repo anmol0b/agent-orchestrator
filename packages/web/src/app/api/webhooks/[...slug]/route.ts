@@ -162,12 +162,12 @@ export async function POST(request: Request): Promise<Response> {
       return NextResponse.json(
         {
           error: unsupportedOnly
-            ? "Webhook verification not supported by SCM plugin"
+            ? "No SCM webhook configured for this path"
             : (errors[0] ?? "Webhook verification failed"),
           ok: false,
           verificationSupported,
         },
-        { status: unsupportedOnly ? 501 : 401 },
+        { status: unsupportedOnly ? 404 : 401 },
       );
     }
 

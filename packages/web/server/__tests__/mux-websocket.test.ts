@@ -5,9 +5,10 @@ import type { SessionBroadcaster as SessionBroadcasterType } from "../mux-websoc
 
 // vi.mock factories run before module-level statements. Hoist the mock
 // fns so the factories close over the same instances the tests use.
-const { mockSpawn, mockPtySpawn, recordActivityEvent } = vi.hoisted(() => ({
+const { mockSpawn, mockPtySpawn, mockTmuxHasSession, recordActivityEvent } = vi.hoisted(() => ({
   mockSpawn: vi.fn(),
   mockPtySpawn: vi.fn(),
+  mockTmuxHasSession: vi.fn(),
   recordActivityEvent: vi.fn(),
 }));
 
@@ -44,6 +45,7 @@ vi.mock("../tmux-utils.js", () => ({
   validateSessionId: () => true,
   resolveTmuxSession: () => "ao-177",
   resolvePipePath: () => null,
+  tmuxHasSession: (...args: unknown[]) => mockTmuxHasSession(...args),
 }));
 
 const { SessionBroadcaster, TerminalManager, createMuxWebSocket } =
@@ -62,7 +64,7 @@ type MockPty = {
   resize: ReturnType<typeof vi.fn>;
   kill: ReturnType<typeof vi.fn>;
   emitData: (data: string) => void;
-  emitExit: (exitCode: number) => void;
+  emitExit: (exitCode: number) => Promise<void>;
 };
 
 const ptyInstances: MockPty[] = [];
@@ -83,8 +85,8 @@ function createMockPty(): MockPty {
   pty.emitData = (data: string) => {
     for (const handler of pty.dataHandlers) handler(data);
   };
-  pty.emitExit = (exitCode: number) => {
-    for (const handler of [...pty.exitHandlers]) handler({ exitCode });
+  pty.emitExit = async (exitCode: number) => {
+    await Promise.all([...pty.exitHandlers].map((handler) => handler({ exitCode })));
   };
   ptyInstances.push(pty);
   return pty;
@@ -94,6 +96,8 @@ function resetPtyMock(): void {
   ptyInstances.length = 0;
   mockSpawn.mockReset();
   mockPtySpawn.mockReset();
+  mockTmuxHasSession.mockReset();
+  mockTmuxHasSession.mockResolvedValue(true);
   mockSpawn.mockImplementation(() => new EventEmitter());
   mockPtySpawn.mockImplementation(createMockPty);
 }
@@ -534,7 +538,7 @@ describe("TerminalManager ui.terminal_pty_lost activity events", () => {
       .filter((event) => event.kind === "ui.terminal_pty_lost");
   }
 
-  it("emits ui.terminal_pty_lost when a subscribed PTY exits and reattach fails", () => {
+  it("emits ui.terminal_pty_lost when a subscribed PTY exits and reattach fails", async () => {
     const manager = new TerminalManager("/usr/bin/tmux");
     manager.open("app-1", "proj-1", "tmux-app-1");
     const pty = ptyInstances[0];
@@ -545,7 +549,7 @@ describe("TerminalManager ui.terminal_pty_lost activity events", () => {
       throw new Error("reattach unavailable");
     });
 
-    pty!.emitExit(9);
+    await pty!.emitExit(9);
 
     const events = ptyLostEvents();
     expect(events).toHaveLength(1);
@@ -562,7 +566,34 @@ describe("TerminalManager ui.terminal_pty_lost activity events", () => {
     );
   });
 
-  it("does not emit ui.terminal_pty_lost when the last subscriber already left", () => {
+  it("emits ui.terminal_pty_lost when a subscribed PTY exits and reattach succeeds", async () => {
+    const manager = new TerminalManager("/usr/bin/tmux");
+    manager.open("app-1", "proj-1", "tmux-app-1");
+    const pty = ptyInstances[0];
+    expect(pty).toBeDefined();
+
+    manager.subscribe("app-1", "proj-1", vi.fn(), vi.fn());
+
+    await pty!.emitExit(9);
+
+    const events = ptyLostEvents();
+    expect(mockPtySpawn).toHaveBeenCalledTimes(2);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        sessionId: "app-1",
+        data: expect.objectContaining({
+          sessionId: "app-1",
+          exitCode: 9,
+          subscriberCount: 1,
+          reattachRecovered: true,
+          reattachExhausted: false,
+        }),
+      }),
+    );
+  });
+
+  it("does not emit ui.terminal_pty_lost when the last subscriber already left", async () => {
     const manager = new TerminalManager("/usr/bin/tmux");
     manager.open("app-1", "proj-1", "tmux-app-1");
     const pty = ptyInstances[0];
@@ -571,12 +602,12 @@ describe("TerminalManager ui.terminal_pty_lost activity events", () => {
     const unsubscribe = manager.subscribe("app-1", "proj-1", vi.fn(), vi.fn());
     unsubscribe();
 
-    pty!.emitExit(0);
+    await pty!.emitExit(0);
 
     expect(ptyLostEvents()).toEqual([]);
   });
 
-  it("emits ui.terminal_pty_lost at most once across reattach cycles", () => {
+  it("emits ui.terminal_pty_lost at most once across reattach cycles", async () => {
     const manager = new TerminalManager("/usr/bin/tmux");
     manager.open("app-1", "proj-1", "tmux-app-1");
     const firstPty = ptyInstances[0];
@@ -586,7 +617,7 @@ describe("TerminalManager ui.terminal_pty_lost activity events", () => {
     mockPtySpawn.mockImplementationOnce(() => {
       throw new Error("first reattach unavailable");
     });
-    firstPty!.emitExit(7);
+    await firstPty!.emitExit(7);
     expect(ptyLostEvents()).toHaveLength(1);
 
     // A client may try to re-open the terminal after the first PTY loss.
@@ -598,9 +629,33 @@ describe("TerminalManager ui.terminal_pty_lost activity events", () => {
     mockPtySpawn.mockImplementationOnce(() => {
       throw new Error("second reattach unavailable");
     });
-    secondPty!.emitExit(8);
+    await secondPty!.emitExit(8);
 
     expect(ptyLostEvents()).toHaveLength(1);
+  });
+
+  it("re-arms ui.terminal_pty_lost after a successful reattach survives the grace period", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new TerminalManager("/usr/bin/tmux");
+      manager.open("app-1", "proj-1", "tmux-app-1");
+      const firstPty = ptyInstances[0];
+      expect(firstPty).toBeDefined();
+
+      manager.subscribe("app-1", "proj-1", vi.fn(), vi.fn());
+      await firstPty!.emitExit(7);
+      expect(ptyLostEvents()).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      const secondPty = ptyInstances[1];
+      expect(secondPty).toBeDefined();
+      await secondPty!.emitExit(8);
+
+      expect(ptyLostEvents()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -651,5 +706,64 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
     expect(mockPtySpawn).toHaveBeenCalledTimes(1);
     const [, args] = mockPtySpawn.mock.calls[0];
     expect(args).toEqual(["attach-session", "-t", "=ao-177"]);
+  });
+});
+
+describe("TerminalManager.open — re-attach skipped when tmux session is gone (regression for #1756)", () => {
+  // Captures the latest onExit callback registered by ptySpawn so tests can
+  // synthesise a PTY exit without spawning a real process. The handler is
+  // async (so it can await the promisified has-session probe), so tests
+  // await its return value before asserting.
+  let capturedOnExit: ((evt: { exitCode: number }) => Promise<void> | void) | undefined;
+
+  beforeEach(() => {
+    mockSpawn.mockReset();
+    mockPtySpawn.mockReset();
+    mockTmuxHasSession.mockReset();
+    capturedOnExit = undefined;
+
+    mockSpawn.mockImplementation(() => new EventEmitter());
+    mockPtySpawn.mockImplementation(() => ({
+      onData: vi.fn(),
+      onExit: vi.fn((cb: (evt: { exitCode: number }) => Promise<void> | void) => {
+        capturedOnExit = cb;
+      }),
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+    }));
+  });
+
+  it("skips re-attach and notifies subscribers when has-session reports the tmux session is gone", async () => {
+    const mgr = new TerminalManager("/usr/bin/tmux");
+    const exitCb = vi.fn();
+    mgr.subscribe("ao-177", undefined, vi.fn(), exitCb);
+
+    expect(mockPtySpawn).toHaveBeenCalledTimes(1);
+    expect(capturedOnExit).toBeDefined();
+
+    mockTmuxHasSession.mockResolvedValueOnce(false);
+    await capturedOnExit!({ exitCode: 0 });
+
+    // No second attach-session was spawned — the re-attach loop was skipped.
+    expect(mockPtySpawn).toHaveBeenCalledTimes(1);
+    // Subscribers were notified with the original exit code.
+    expect(exitCb).toHaveBeenCalledTimes(1);
+    expect(exitCb).toHaveBeenCalledWith(0);
+  });
+
+  it("still re-attaches when has-session reports the tmux session is alive", async () => {
+    const mgr = new TerminalManager("/usr/bin/tmux");
+    const exitCb = vi.fn();
+    mgr.subscribe("ao-177", undefined, vi.fn(), exitCb);
+
+    expect(mockPtySpawn).toHaveBeenCalledTimes(1);
+
+    mockTmuxHasSession.mockResolvedValueOnce(true);
+    await capturedOnExit!({ exitCode: 1 });
+
+    // Re-attach happened: ptySpawn called a second time, exit not yet notified.
+    expect(mockPtySpawn).toHaveBeenCalledTimes(2);
+    expect(exitCb).not.toHaveBeenCalled();
   });
 });

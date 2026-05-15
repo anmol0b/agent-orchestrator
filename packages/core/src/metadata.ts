@@ -25,7 +25,7 @@ import {
 import { basename, join, dirname } from "node:path";
 import type { CanonicalSessionLifecycle, RuntimeHandle, SessionId, SessionMetadata } from "./types.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
-import { recordActivityEvent } from "./activity-events.js";
+import { recordActivityEvent, type ActivityEventSource } from "./activity-events.js";
 import {
   buildLifecycleMetadataPatch,
   cloneLifecycle,
@@ -331,6 +331,11 @@ export function applyMetadataUpdates(
   return next;
 }
 
+interface MutateMetadataOptions {
+  createIfMissing?: boolean;
+  activityEventSource?: ActivityEventSource;
+}
+
 function normalizeMetadataRecord(data: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
     Object.entries(data).filter(([, value]) => value !== undefined && value !== ""),
@@ -341,7 +346,7 @@ export function mutateMetadata(
   dataDir: string,
   sessionId: SessionId,
   updater: (existing: Record<string, string>) => Record<string, string>,
-  options: { createIfMissing?: boolean } = {},
+  options: MutateMetadataOptions = {},
 ): Record<string, string> | null {
   const path = metadataPath(dataDir, sessionId);
   const lockPath = `${path}.lock`;
@@ -393,13 +398,13 @@ export function mutateMetadata(
           recordActivityEvent({
             projectId: inferredProjectId || undefined,
             sessionId,
-            source: "session-manager",
+            source: options.activityEventSource ?? "session-manager",
             kind: "metadata.corrupt_detected",
             level: "error",
             summary,
             data: {
               path,
-              renamedTo: renamed ? basename(corruptPath) : null,
+              renamedTo: renamed ? corruptPath : null,
               renameSucceeded: renamed,
               contentSample,
               contentLength: content.length,

@@ -429,7 +429,7 @@ describe("mutateMetadata corrupt-file handling", () => {
         level: "error",
         summary: expect.stringContaining("renamed to"),
         data: expect.objectContaining({
-          renamedTo: expect.stringMatching(/\.corrupt-\d+$/),
+          renamedTo: expect.stringContaining(`${sessionPath}.corrupt-`),
           renameSucceeded: true,
           contentSample: "{ broken json",
           path: sessionPath,
@@ -467,6 +467,26 @@ describe("mutateMetadata corrupt-file handling", () => {
       }),
     });
     expect(call![0].summary).not.toContain("renamed to");
+  });
+
+  it("uses the provided source for metadata.corrupt_detected", () => {
+    const sessionPath = join(dataDir, "ao-api-source.json");
+    writeFileSync(sessionPath, "{ broken json", "utf-8");
+
+    mutateMetadata(
+      dataDir,
+      "ao-api-source",
+      (existing) => ({ ...existing, branch: "feat/api" }),
+      { createIfMissing: true, activityEventSource: "api" },
+    );
+
+    expect(recordActivityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "ao-api-source",
+        source: "api",
+        kind: "metadata.corrupt_detected",
+      }),
+    );
   });
 
   it("truncates contentSample to 200 chars in metadata.corrupt_detected", () => {

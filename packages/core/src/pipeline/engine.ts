@@ -1,18 +1,19 @@
 /**
- * Pipeline engine — minimum wiring to drive the reducer + agent executor
- * end-to-end for v0.2.
+ * Pipeline engine — drives the reducer plus agent, command, and builtin
+ * executors end-to-end.
  *
  * Responsibilities:
  *  - Hold engine state in memory (mirrors what's persisted by the store).
  *  - Translate `PipelineEffect`s coming out of the reducer into real I/O:
  *    persistence (PERSIST_RUN, PERSIST_LOOP_STATE, APPEND_ARTIFACTS) and
  *    stage execution (START_STAGE, CANCEL_STAGE).
- *  - On `tick()`, poll every running agent stage; when a stage completes,
- *    dispatch STAGE_COMPLETED back through the reducer.
+ *  - On `tick()`, poll every running agent and command stage; when a stage
+ *    reaches a terminal outcome, dispatch STAGE_COMPLETED / STAGE_FAILED
+ *    back through the reducer.
  *
- * Out of scope for v0.2 (lands later in the pipeline cluster):
- *  - DAG / parallel scheduling (v1.1)
- *  - Command + builtin executors (v1.2)
+ * Out of scope (lands later in the pipeline cluster):
+ *  - Predicate DSL beyond the v1.1 hardcoded forms (v1.3)
+ *  - Workspace classes (v1.3)
  *  - SHA / merge-ready trigger detection
  *  - SCM webhook ingestion
  *
@@ -26,6 +27,14 @@
  * in-memory `state`. The engine-internal saga (e.g. START_STAGE → STAGE_STARTED
  * → STAGE_FAILED) routes through `dispatchInline`, which bypasses the lock
  * because it's already running inside it.
+ *
+ * Non-blocking executors: both `agentExecutor` and `commandExecutor` follow
+ * a startStage / pollStage / cancelStage handoff. `startStage` returns a
+ * handle as soon as the underlying work begins (session spawn / child
+ * process spawn), so the lock is not held for the duration of the stage.
+ * `tick()` polls each in-flight handle on its own schedule. Builtin
+ * executors run synchronously inside the lock — they're pure functions
+ * over artifacts and complete in microseconds.
  */
 
 import { randomUUID } from "node:crypto";

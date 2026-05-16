@@ -303,10 +303,11 @@ export function createCommandExecutor(deps: CommandExecutorDeps = {}): CommandSt
       cancel: () => {
         if (settled || cancelled) return;
         cancelled = true;
-        clearTimers();
+        clearKillTimer();
         if (child.pid !== undefined) {
           void killProcessTree(child.pid, "SIGTERM");
           forceTimer = setTimeout(() => {
+            forceTimer = null;
             if (child.pid !== undefined) {
               void killProcessTree(child.pid, "SIGKILL");
             }
@@ -314,6 +315,8 @@ export function createCommandExecutor(deps: CommandExecutorDeps = {}): CommandSt
         }
         // Settle immediately with cancelled failure so pollStage / done
         // see the terminal outcome without waiting for the close event.
+        // settle() intentionally does NOT clear `forceTimer` — if the child
+        // ignores SIGTERM we still need the SIGKILL escalation to fire.
         settle({
           status: "failed",
           errorMessage: `command "${executor.command}" was cancelled`,
@@ -321,23 +324,31 @@ export function createCommandExecutor(deps: CommandExecutorDeps = {}): CommandSt
       },
     };
 
-    const clearTimers = () => {
+    const clearKillTimer = () => {
       if (killTimer) clearTimeout(killTimer);
-      if (forceTimer) clearTimeout(forceTimer);
       killTimer = null;
+    };
+    const clearForceTimer = () => {
+      if (forceTimer) clearTimeout(forceTimer);
       forceTimer = null;
     };
 
     const settle = (outcome: Exclude<CommandOutcome, { status: "running" }>) => {
       if (settled) return;
       settled = true;
-      clearTimers();
+      // Only the deadline timer is cancelled here. `forceTimer` is the
+      // SIGKILL escalation; it must keep running until either the child
+      // actually exits (close handler clears it) or the escalation
+      // itself fires. Cancelling it inside settle would let a child that
+      // ignores SIGTERM survive as an orphan.
+      clearKillTimer();
       handle.outcome = outcome;
       resolveOutcome(outcome);
     };
 
     if (timeoutMs > 0 && Number.isFinite(timeoutMs)) {
       killTimer = setTimeout(() => {
+        killTimer = null;
         if (settled) return;
         timedOut = true;
         // Best-effort graceful shutdown of the whole process tree,
@@ -348,6 +359,7 @@ export function createCommandExecutor(deps: CommandExecutorDeps = {}): CommandSt
           void killProcessTree(child.pid, "SIGTERM");
         }
         forceTimer = setTimeout(() => {
+          forceTimer = null;
           if (child.pid !== undefined) {
             void killProcessTree(child.pid, "SIGKILL");
           }
@@ -388,6 +400,9 @@ export function createCommandExecutor(deps: CommandExecutorDeps = {}): CommandSt
       });
     });
     child.on("close", (code, signal) => {
+      // Child has actually exited — cancel any pending SIGKILL escalation
+      // so the timer doesn't fire against a recycled PID.
+      clearForceTimer();
       // If we already settled (e.g. cancel() was called), don't overwrite.
       if (settled) return;
       const stderrRaw = Buffer.concat(stderrChunks).toString("utf-8").trim();

@@ -111,7 +111,7 @@ jobs:
           # create a minimal one. `changeset version --snapshot` consumes and
           # deletes it, so no cleanup is needed.
           if [ -z "$(ls .changeset/*.md 2>/dev/null | grep -vi 'README')" ]; then
-            printf -- '---\n"@aoagents/ao": patch\n---\n\nchore: canary build\n' > .changeset/canary-temp.md
+            printf -- '---\n"@aoagents/ao": patch\n"@aoagents/ao-cli": patch\n"@aoagents/ao-core": patch\n"@aoagents/ao-plugin-agent-aider": patch\n"@aoagents/ao-plugin-agent-claude-code": patch\n"@aoagents/ao-plugin-agent-codex": patch\n"@aoagents/ao-plugin-agent-cursor": patch\n"@aoagents/ao-plugin-agent-kimicode": patch\n"@aoagents/ao-plugin-agent-opencode": patch\n"@aoagents/ao-plugin-notifier-composio": patch\n"@aoagents/ao-plugin-notifier-desktop": patch\n"@aoagents/ao-plugin-notifier-discord": patch\n"@aoagents/ao-plugin-notifier-openclaw": patch\n"@aoagents/ao-plugin-notifier-slack": patch\n"@aoagents/ao-plugin-notifier-webhook": patch\n"@aoagents/ao-plugin-runtime-process": patch\n"@aoagents/ao-plugin-runtime-tmux": patch\n"@aoagents/ao-plugin-scm-github": patch\n"@aoagents/ao-plugin-scm-gitlab": patch\n"@aoagents/ao-plugin-terminal-iterm2": patch\n"@aoagents/ao-plugin-terminal-web": patch\n"@aoagents/ao-plugin-tracker-github": patch\n"@aoagents/ao-plugin-tracker-gitlab": patch\n"@aoagents/ao-plugin-tracker-linear": patch\n"@aoagents/ao-plugin-workspace-clone": patch\n"@aoagents/ao-plugin-workspace-worktree": patch\n"@aoagents/ao-web": patch\n---\n\nchore: canary build\n' > .changeset/canary-temp.md
           fi
           pnpm changeset version --snapshot nightly
         env:

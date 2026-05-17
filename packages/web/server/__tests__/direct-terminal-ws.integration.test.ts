@@ -7,12 +7,16 @@
  * response, mirroring what the browser's MuxProvider does.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request, type IncomingMessage } from "node:http";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { WebSocket } from "ws";
 import { findTmux } from "../tmux-utils.js";
 import { createDirectTerminalServer, type DirectTerminalServer } from "../direct-terminal-ws.js";
+import { createRemoteWsToken } from "../remote-auth.js";
 
 const TMUX = findTmux();
 const TEST_SESSION = `ao-test-integration-${process.pid}`;
@@ -47,9 +51,9 @@ function httpGet(path: string): Promise<{ status: number; body: string }> {
 }
 
 /** Open a raw WebSocket to /mux and wait for the connection to be established. */
-function connectMux(): Promise<WebSocket> {
+function connectMux(path = "/mux"): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}/mux`);
+    const ws = new WebSocket(`ws://localhost:${port}${path}`);
     ws.on("open", () => resolve(ws));
     ws.on("error", reject);
     setTimeout(() => reject(new Error("WebSocket connect timeout")), 5000);
@@ -126,6 +130,10 @@ afterAll(() => {
   }
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 // =============================================================================
 // Health endpoint
 // =============================================================================
@@ -178,6 +186,81 @@ describeWithTmux("WebSocket upgrade routing", () => {
     const ws = await connectMux();
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
+  });
+
+  it("requires auth_token on /mux when remote auth is enabled", async () => {
+    vi.stubEnv("AO_REMOTE_AUTH_USER", "ao");
+    vi.stubEnv("AO_REMOTE_AUTH_PASSWORD", "secret");
+    vi.stubEnv("AO_REMOTE_WS_TOKEN_SECRET", "test-ws-token-secret");
+
+    const rejected = await new Promise<{ code: number }>((resolve) => {
+      const ws = new WebSocket(`ws://localhost:${port}/mux`);
+      ws.on("close", (code) => resolve({ code }));
+      ws.on("error", () => resolve({ code: -1 }));
+      setTimeout(() => resolve({ code: -1 }), 3000);
+    });
+    expect(rejected.code).not.toBe(1000);
+
+    const token = createRemoteWsToken({ username: "ao", password: "secret" });
+    if (!token) throw new Error("expected token");
+    const ws = await connectMux(`/mux?auth_token=${encodeURIComponent(token)}`);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("uses saved remote credentials after they change at runtime", async () => {
+    if (!TMUX) return;
+    const tempDir = mkdtempSync(resolve(tmpdir(), "ao-remote-auth-"));
+    const configPath = resolve(tempDir, "config.yaml");
+    writeFileSync(configPath, "remoteAccess:\n  username: ao\n  password: saved-old\n");
+    vi.stubEnv("AO_GLOBAL_CONFIG", configPath);
+    vi.stubEnv("AO_REMOTE_AUTH_USER", "ao");
+    vi.stubEnv("AO_REMOTE_AUTH_PASSWORD", "env-password");
+    vi.stubEnv("AO_REMOTE_WS_TOKEN_SECRET", "test-ws-token-secret");
+
+    const rotatedServer = createDirectTerminalServer(TMUX);
+    rotatedServer.server.listen(0);
+    const addr = rotatedServer.server.address();
+    const rotatedPort = typeof addr === "object" && addr ? addr.port : 0;
+
+    const connectRotatedMux = (token: string): Promise<WebSocket> =>
+      new Promise((resolvePromise, reject) => {
+        const ws = new WebSocket(
+          `ws://localhost:${rotatedPort}/mux?auth_token=${encodeURIComponent(token)}`,
+        );
+        ws.on("open", () => resolvePromise(ws));
+        ws.on("error", reject);
+        setTimeout(() => reject(new Error("WebSocket connect timeout")), 5000);
+      });
+
+    try {
+      const envToken = createRemoteWsToken({ username: "ao", password: "env-password" });
+      if (!envToken) throw new Error("expected token");
+      const initialWs = await connectRotatedMux(envToken);
+      expect(initialWs.readyState).toBe(WebSocket.OPEN);
+      initialWs.close();
+
+      writeFileSync(configPath, "remoteAccess:\n  username: ao\n  password: saved-new\n");
+
+      const oldTokenResult = await new Promise<{ code: number }>((resolvePromise) => {
+        const ws = new WebSocket(
+          `ws://localhost:${rotatedPort}/mux?auth_token=${encodeURIComponent(envToken)}`,
+        );
+        ws.on("close", (code) => resolvePromise({ code }));
+        ws.on("error", () => resolvePromise({ code: -1 }));
+        setTimeout(() => resolvePromise({ code: -1 }), 3000);
+      });
+      expect(oldTokenResult.code).not.toBe(1000);
+
+      const newToken = createRemoteWsToken({ username: "ao", password: "saved-new" });
+      if (!newToken) throw new Error("expected token");
+      const rotatedWs = await connectRotatedMux(newToken);
+      expect(rotatedWs.readyState).toBe(WebSocket.OPEN);
+      rotatedWs.close();
+    } finally {
+      rotatedServer.shutdown();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("destroys connections on unknown paths", async () => {

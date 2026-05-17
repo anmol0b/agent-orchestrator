@@ -10,7 +10,11 @@
  */
 
 import { type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve, basename, dirname } from "node:path";
 import { cwd } from "node:process";
 import chalk from "chalk";
@@ -126,6 +130,10 @@ function readProjectBehaviorConfig(projectPath: string): LocalProjectConfig {
 
 function writeProjectBehaviorConfig(projectPath: string, config: LocalProjectConfig): void {
   writeLocalProjectConfig(projectPath, config);
+}
+
+interface StartupResult {
+  port: number;
 }
 
 /**
@@ -795,7 +803,12 @@ async function startDashboard(
   directTerminalPort?: number,
   devMode?: boolean,
 ): Promise<ChildProcess> {
-  const env = await buildDashboardEnv(port, configPath, terminalPort, directTerminalPort);
+  const env = await buildDashboardEnv(
+    port,
+    configPath,
+    terminalPort,
+    directTerminalPort,
+  );
 
   // Detect monorepo vs npm install: the `server/` source directory only exists
   // in the monorepo. Published npm packages only have `dist-server/`.
@@ -856,8 +869,13 @@ async function runStartup(
   config: OrchestratorConfig,
   projectId: string,
   project: ProjectConfig,
-  opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean; dev?: boolean },
-): Promise<number> {
+  opts?: {
+    dashboard?: boolean;
+    orchestrator?: boolean;
+    rebuild?: boolean;
+    dev?: boolean;
+  },
+): Promise<StartupResult> {
   await runtimePreflight(config);
 
   // Ask about the auto-update channel once on first `ao start` after this
@@ -907,14 +925,18 @@ async function runStartup(
     }
 
     spinner.start("Starting dashboard");
-    dashboardProcess = await startDashboard(
-      port,
-      webDir,
-      config.configPath,
-      config.terminalPort,
-      config.directTerminalPort,
-      opts?.dev,
-    );
+    try {
+      dashboardProcess = await startDashboard(
+        port,
+        webDir,
+        config.configPath,
+        config.terminalPort,
+        config.directTerminalPort,
+        opts?.dev,
+      );
+    } catch (err) {
+      throw err;
+    }
     spinner.succeed(`Dashboard starting on http://localhost:${port}`);
     console.log(chalk.dim("  (Dashboard will be ready in a few seconds)\n"));
   }
@@ -1096,6 +1118,7 @@ async function runStartup(
 
   if (opts?.dashboard !== false) {
     console.log(chalk.cyan("Dashboard:"), `http://localhost:${port}`);
+    console.log(chalk.dim("  Use the dashboard Remote button to enable mobile access at runtime."));
   }
 
   if (shouldStartLifecycle) {
@@ -1145,7 +1168,9 @@ async function runStartup(
     });
   }
 
-  return port;
+  return {
+    port,
+  };
 }
 
 /**
@@ -1613,7 +1638,8 @@ export function registerStart(program: Command): void {
             project = config.projects[projectId];
           }
 
-          const actualPort = await runStartup(config, projectId, project, opts);
+          const startupResult = await runStartup(config, projectId, project, opts);
+          const actualPort = startupResult.port;
 
           // ── Register in running.json (Step 11) ──
           // During daemon startup, the project supervisor is the authoritative

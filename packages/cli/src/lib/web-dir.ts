@@ -4,6 +4,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { Socket } from "node:net";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -171,6 +172,7 @@ export async function buildDashboardEnv(
   env["DIRECT_TERMINAL_PORT"] = String(resolvedDirect);
   env["NEXT_PUBLIC_TERMINAL_PORT"] = String(resolvedTerminal);
   env["NEXT_PUBLIC_DIRECT_TERMINAL_PORT"] = String(resolvedDirect);
+  env["AO_REMOTE_WS_TOKEN_SECRET"] ||= randomBytes(32).toString("base64url");
 
   return env;
 }

@@ -5,12 +5,26 @@
 
 import { createServer, type Server } from "node:http";
 import type { WebSocketServer } from "ws";
+import { isWindows } from "@aoagents/ao-core";
 import { findTmux } from "./tmux-utils.js";
 import { createMuxWebSocket } from "./mux-websocket.js";
+import {
+  activeRemoteAuth,
+  readConfiguredRemoteAuth,
+  verifyRemoteWsToken,
+  type RemoteAuthCredentials,
+} from "./remote-auth.js";
 
 export interface DirectTerminalServer {
   server: Server;
   shutdown: () => void;
+}
+
+function isRemoteAuthAllowed(url: URL, initialConfiguredAuth: RemoteAuthCredentials): boolean {
+  const { username, password: expectedPassword } = activeRemoteAuth(initialConfiguredAuth);
+  if (!expectedPassword) return true;
+
+  return verifyRemoteWsToken(url.searchParams.get("auth_token"), { username, password: expectedPassword });
 }
 
 /**
@@ -19,6 +33,7 @@ export interface DirectTerminalServer {
  */
 export function createDirectTerminalServer(tmuxPath?: string | null): DirectTerminalServer {
   const TMUX = tmuxPath ?? findTmux();
+  const initialConfiguredAuth = readConfiguredRemoteAuth();
 
   let muxWss: WebSocketServer | null = null;
 
@@ -62,9 +77,10 @@ export function createDirectTerminalServer(tmuxPath?: string | null): DirectTerm
   // Manual upgrade routing — ws library doesn't support multiple WebSocketServer
   // instances with different `path` options on the same HTTP server.
   server.on("upgrade", (request, socket, head) => {
-    const pathname = new URL(request.url ?? "/", "ws://localhost").pathname;
+    const url = new URL(request.url ?? "/", "ws://localhost");
+    const pathname = url.pathname;
 
-    if (pathname === "/mux" && muxWss) {
+    if (pathname === "/mux" && muxWss && isRemoteAuthAllowed(url, initialConfiguredAuth)) {
       muxWss.handleUpgrade(request, socket, head, (ws) => {
         muxWss!.emit("connection", ws, request);
       });
@@ -102,7 +118,7 @@ if (isMainModule) {
   const TMUX = findTmux();
   if (TMUX) {
     console.log(`[DirectTerminal] Using tmux: ${TMUX}`);
-  } else if (process.platform === "win32") {
+  } else if (isWindows()) {
     console.log(`[DirectTerminal] Windows mode — using named pipe relay to PTY hosts`);
   } else {
     console.log(`[DirectTerminal] No tmux available — terminal relay may be limited`);

@@ -28,6 +28,7 @@ import { CopyDebugBundleButton } from "./CopyDebugBundleButton";
 import { SidebarContext } from "./workspace/SidebarContext";
 import { projectDashboardPath, projectSessionPath } from "@/lib/routes";
 import { BottomSheet } from "./BottomSheet";
+import { RemoteAccessQR } from "./RemoteAccessQR";
 
 interface DashboardProps {
   initialSessions: DashboardSession[];
@@ -579,6 +580,7 @@ function DashboardInner({
             {showDebugBundleButton ? <CopyDebugBundleButton projectId={projectId} /> : null}
             <div className="dashboard-app-header__spacer" />
             <div className="dashboard-app-header__actions">
+              <RemoteAccessQR />
               {!allProjectsView && orchestratorHref ? (
                 <Link
                   href={orchestratorHref}

@@ -205,6 +205,13 @@ export const GlobalConfigSchema = z
     updateChannel: UpdateChannelSchema.optional().catch(undefined),
     /** Override path-based install detection. Optional. */
     installMethod: InstallMethodOverrideSchema.optional().catch(undefined),
+    /** Remote dashboard access credentials. */
+    remoteAccess: z
+      .object({
+        username: z.string().optional(),
+        password: z.string().optional(),
+      })
+      .optional(),
     /** Cross-project defaults — projects inherit when fields are omitted. */
     defaults: z
       .object({
@@ -1081,6 +1088,9 @@ export function createDefaultGlobalConfig(): GlobalConfig {
   return {
     port: 3000,
     readyThresholdMs: 300_000,
+    remoteAccess: {
+      username: "ao",
+    },
     defaults: {
       runtime: getDefaultRuntime(),
       agent: "claude-code",

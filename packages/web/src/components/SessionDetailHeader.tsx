@@ -12,6 +12,7 @@ import type { ProjectInfo } from "@/lib/project-name";
 import { SessionDetailPRCard } from "./SessionDetailPRCard";
 import { askAgentToFix } from "./session-detail-agent-actions";
 import { buildGitHubBranchUrl } from "./session-detail-utils";
+import { RemoteAccessQR } from "./RemoteAccessQR";
 
 export interface OrchestratorZones {
   merge: number;
@@ -205,6 +206,7 @@ export function SessionDetailHeader({
       </span>
       <div className="dashboard-app-header__spacer" />
       <div className="dashboard-app-header__actions">
+        <RemoteAccessQR />
         {pr ? (
           <div className="topbar-pr-btn-wrap" ref={prPopoverRef}>
             <a

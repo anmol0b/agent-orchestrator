@@ -2757,8 +2757,9 @@ describe("setup desktop command", () => {
     ]);
 
     expect(mockCpSync).not.toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledWith("which", ["terminal-notifier"], {
+    expect(mockExecFileSync).toHaveBeenCalledWith("terminal-notifier", ["--version"], {
       stdio: "ignore",
+      windowsHide: true,
     });
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "terminal-notifier",
@@ -2798,7 +2799,10 @@ describe("setup desktop command", () => {
     ]);
 
     expect(mockCpSync).not.toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledWith("which", ["osascript"], { stdio: "ignore" });
+    expect(mockExecFileSync).toHaveBeenCalledWith("osascript", ["--version"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "osascript",
       ["-e", 'display notification "Desktop notifications are ready." with title "AO Notifier"'],
@@ -2923,8 +2927,10 @@ projects:
 
   it("fails for missing terminal-notifier in non-interactive mode", async () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
-      if (cmd === "which" && args[0] === "terminal-notifier") {
-        throw new Error("not found");
+      if (cmd === "terminal-notifier" && args[0] === "--version") {
+        const error = new Error("not found") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
       }
       return "";
     });
@@ -3067,6 +3073,28 @@ projects:
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("System Settings"));
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it("refuses to install a non-macOS placeholder AO Notifier.app", async () => {
+    mockExistsSync.mockImplementation(
+      (path: string) =>
+        path.endsWith("AO Notifier.app/Contents/MacOS/ao-notifier") ||
+        path.endsWith("AO Notifier.app/Contents/Resources/ao-notifier-placeholder"),
+    );
+    const program = createProgram();
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      program.parseAsync(["node", "test", "setup", "desktop", "--non-interactive"]),
+    ).rejects.toThrow("process.exit");
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("non-macOS placeholder"));
+    expect(mockCpSync).not.toHaveBeenCalled();
     expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
 

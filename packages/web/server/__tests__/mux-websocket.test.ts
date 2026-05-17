@@ -317,6 +317,13 @@ describe("NotificationBroadcaster", () => {
     });
   }
 
+  function appendEventWithLimit(id: string, receivedAt: string, limit: number): void {
+    appendDashboardNotification(configPath, makeEvent(id), undefined, {
+      receivedAt: new Date(receivedAt),
+      limit,
+    });
+  }
+
   it("sends an immediate dashboard notification snapshot", () => {
     appendEvent("evt-1", "2026-05-13T12:00:01.000Z");
     const broadcaster = new NotificationBroadcaster(configPath);
@@ -361,6 +368,42 @@ describe("NotificationBroadcaster", () => {
 
     unsubscribeFirst();
     unsubscribeSecond();
+  });
+
+  it("reloads the dashboard notification limit while polling", () => {
+    appendEvent("evt-1", "2026-05-13T12:00:01.000Z");
+    const broadcaster = new NotificationBroadcaster(configPath);
+    const callback = vi.fn();
+
+    const unsubscribe = broadcaster.subscribe(callback);
+    expect(callback).toHaveBeenCalledWith(expect.any(Array), "snapshot", 2);
+
+    writeFileSync(
+      configPath,
+      [
+        "projects: {}",
+        "notifiers:",
+        "  dashboard:",
+        "    plugin: dashboard",
+        "    limit: 3",
+        "",
+      ].join("\n"),
+    );
+    appendEventWithLimit("evt-2", "2026-05-13T12:00:02.000Z", 3);
+    appendEventWithLimit("evt-3", "2026-05-13T12:00:03.000Z", 3);
+
+    vi.advanceTimersByTime(1000);
+
+    expect(callback).toHaveBeenLastCalledWith(
+      [
+        expect.objectContaining({ event: expect.objectContaining({ id: "evt-2" }) }),
+        expect.objectContaining({ event: expect.objectContaining({ id: "evt-3" }) }),
+      ],
+      "append",
+      3,
+    );
+
+    unsubscribe();
   });
 });
 

@@ -49,7 +49,9 @@ describe("notifier-desktop", () => {
     mockExistsSync.mockReturnValue(false);
     // Default: terminal-notifier not available (osascript fallback)
     mockExecFileSync.mockImplementation(() => {
-      throw new Error("not found");
+      const error = new Error("not found") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
     });
     mockExecFile.mockImplementation((..._args: unknown[]) => {
       // execFile may be called as (cmd, args, cb) or (cmd, args, opts, cb).
@@ -451,7 +453,9 @@ describe("notifier-desktop", () => {
 
     it("falls back to osascript when terminal-notifier is not found", async () => {
       mockExecFileSync.mockImplementation(() => {
-        throw new Error("not found");
+        const error = new Error("not found") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
       });
       const notifier = create();
       await notifier.notify(makeEvent());
@@ -579,6 +583,19 @@ describe("notifier-desktop", () => {
 
       await expect(notifier.notify(makeEvent())).rejects.toThrow("ao setup desktop");
       expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it("does not use a placeholder AO Notifier.app in auto mode", async () => {
+      mockExistsSync.mockImplementation(
+        (path: string) =>
+          path.endsWith("AO Notifier.app/Contents/MacOS/ao-notifier") ||
+          path.endsWith("AO Notifier.app/Contents/Resources/ao-notifier-placeholder"),
+      );
+      const notifier = create();
+
+      await notifier.notify(makeEvent());
+
+      expect(mockExecFile.mock.calls[0][0]).toBe("osascript");
     });
   });
 });

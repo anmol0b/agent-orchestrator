@@ -397,13 +397,12 @@ export function DashboardNotificationButton() {
   }, [open]);
 
   return (
-    <div ref={rootRef} className="dashboard-notification-wrap" onMouseEnter={() => setOpen(true)}>
+    <div ref={rootRef} className="dashboard-notification-wrap">
       <button
         type="button"
         className={`dashboard-app-btn dashboard-notification-btn${open ? " dashboard-notification-btn--open" : ""}`}
         aria-label="Notifications"
         aria-expanded={open}
-        onFocus={() => setOpen(true)}
         onClick={() => setOpen((value) => !value)}
       >
         <svg

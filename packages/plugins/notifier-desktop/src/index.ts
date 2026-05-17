@@ -54,6 +54,7 @@ export const manifest = {
 export { escapeAppleScript } from "@aoagents/ao-core";
 
 type DesktopBackend = "auto" | "ao-app" | "terminal-notifier" | "osascript";
+const PLACEHOLDER_MARKER_NAME = "ao-notifier-placeholder";
 
 interface MacDeliveryOptions {
   backend: DesktopBackend;
@@ -246,6 +247,10 @@ function macAppExecutable(appPath: string): string {
   return join(appPath, "Contents", "MacOS", "ao-notifier");
 }
 
+function macAppPlaceholderMarker(appPath: string): string {
+  return join(appPath, "Contents", "Resources", PLACEHOLDER_MARKER_NAME);
+}
+
 function nativeNotificationId(event: OrchestratorEvent, sequence: number): string {
   return `${event.id}.${Date.now()}.${process.pid}.${sequence}`;
 }
@@ -255,7 +260,7 @@ function nativeThreadId(): string {
 }
 
 function detectAoNotifierApp(appPath: string): boolean {
-  return existsSync(macAppExecutable(appPath));
+  return existsSync(macAppExecutable(appPath)) && !existsSync(macAppPlaceholderMarker(appPath));
 }
 
 function parseBackend(value: unknown): DesktopBackend {
@@ -375,10 +380,10 @@ function primaryOpenUrl(
 /** Check once at create() time whether terminal-notifier is available. */
 function detectTerminalNotifier(): boolean {
   try {
-    execFileSync("which", ["terminal-notifier"], { stdio: "ignore" });
+    execFileSync("terminal-notifier", ["--version"], { stdio: "ignore", windowsHide: true });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ENOENT";
   }
 }
 

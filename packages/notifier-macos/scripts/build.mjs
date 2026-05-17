@@ -17,15 +17,16 @@ const contentsDir = resolve(appDir, "Contents");
 const macOsDir = resolve(contentsDir, "MacOS");
 const resourcesDir = resolve(contentsDir, "Resources");
 const executablePath = resolve(macOsDir, "ao-notifier");
+const placeholderMarkerPath = resolve(resourcesDir, "ao-notifier-placeholder");
 const swiftSource = resolve(packageDir, "src", "AONotifier.swift");
 const sourceIconSvg = resolve(packageDir, "assets", "AppIcon.svg");
 
 function commandExists(command) {
   try {
-    execFileSync("which", [command], { stdio: "ignore" });
+    execFileSync(command, ["--version"], { stdio: "ignore", windowsHide: true });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return error?.code !== "ENOENT";
   }
 }
 
@@ -205,6 +206,7 @@ exit 1
 `,
     { mode: 0o755 },
   );
+  writeFileSync(placeholderMarkerPath, "native macOS build unavailable\n");
 }
 
 rmSync(distDir, { recursive: true, force: true });

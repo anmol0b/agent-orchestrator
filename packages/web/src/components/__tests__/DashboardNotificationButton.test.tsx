@@ -99,20 +99,27 @@ beforeEach(() => {
 });
 
 describe("DashboardNotificationButton", () => {
-  it("keeps the panel open after the pointer leaves the trigger", () => {
+  it("only toggles the panel from an explicit trigger click", () => {
     render(<DashboardNotificationButton />);
+    const trigger = screen.getByRole("button", { name: "Notifications" });
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.mouseEnter(trigger);
+    expect(screen.queryByRole("dialog", { name: "Notifications" })).not.toBeInTheDocument();
+
+    fireEvent.focus(trigger);
+    expect(screen.queryByRole("dialog", { name: "Notifications" })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
     expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
 
-    fireEvent.mouseLeave(screen.getByRole("button", { name: "Notifications" }));
-    expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog", { name: "Notifications" })).not.toBeInTheDocument();
   });
 
   it("toggles one notification and all notifications between read and unread", () => {
     render(<DashboardNotificationButton />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
     expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Unread 2" })).toBeInTheDocument();
     expect(screen.queryByText("2/50 retained")).not.toBeInTheDocument();
@@ -136,7 +143,7 @@ describe("DashboardNotificationButton", () => {
   it("filters the list to unread notifications", () => {
     render(<DashboardNotificationButton />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Mark read" })[0]);
     fireEvent.click(screen.getByRole("tab", { name: "Unread 1" }));
 
@@ -154,7 +161,7 @@ describe("DashboardNotificationButton", () => {
 
     render(<DashboardNotificationButton />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
 
     expect(screen.getByText("urgent")).toBeInTheDocument();
     expect(screen.getByText("action")).toBeInTheDocument();
@@ -170,7 +177,7 @@ describe("DashboardNotificationButton", () => {
 
     render(<DashboardNotificationButton />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
 
     expect(screen.getByText("approved")).toBeInTheDocument();
     expect(screen.getByText("all complete")).toBeInTheDocument();
@@ -192,7 +199,7 @@ describe("DashboardNotificationButton", () => {
 
     render(<DashboardNotificationButton />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
 
     expect(screen.queryByRole("link", { name: "Open dashboard" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "View PR" })).not.toBeInTheDocument();
@@ -230,7 +237,7 @@ describe("DashboardNotificationButton", () => {
 
     render(<DashboardNotificationButton />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
 
     expect(screen.queryByRole("link", { name: "PR" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Review" })).not.toBeInTheDocument();

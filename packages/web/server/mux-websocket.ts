@@ -228,11 +228,9 @@ export class NotificationBroadcaster {
   private lastRecords: DashboardNotificationRecord[] = [];
   private readonly configPath: string | undefined;
   private readonly storePath: string | null;
-  private readonly limit: number;
 
   constructor(configPath = process.env["AO_CONFIG_PATH"]) {
     this.configPath = configPath;
-    this.limit = readDashboardLimit(configPath);
     this.storePath = configPath ? getDashboardNotificationStorePath(configPath) : null;
   }
 
@@ -253,7 +251,7 @@ export class NotificationBroadcaster {
       this.lastRecords = snapshot.notifications;
     }
     try {
-      callback(snapshot.notifications, "snapshot", this.limit);
+      callback(snapshot.notifications, "snapshot", snapshot.limit);
     } catch {
       // Isolate subscriber errors so one bad socket does not break others.
     }
@@ -282,9 +280,9 @@ export class NotificationBroadcaster {
         this.lastRecords = result.notifications;
 
         if (appended.length > 0 && !trimmed) {
-          this.broadcast(appended, "append");
+          this.broadcast(appended, "append", result.limit);
         } else if (appended.length > 0 || trimmed) {
-          this.broadcast(result.notifications, "snapshot");
+          this.broadcast(result.notifications, "snapshot", result.limit);
         }
       }, 1000);
     }
@@ -301,28 +299,32 @@ export class NotificationBroadcaster {
   private fetchSnapshot(): {
     notifications: DashboardNotificationRecord[];
     error: string | null;
+    limit: number;
   } {
-    if (!this.storePath) return { notifications: [], error: null };
+    const limit = readDashboardLimit(this.configPath);
+    if (!this.storePath) return { notifications: [], error: null, limit };
 
     try {
       return {
-        notifications: readDashboardNotificationsFromFile(this.storePath, this.limit),
+        notifications: readDashboardNotificationsFromFile(this.storePath, limit),
         error: null,
+        limit,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn("[NotificationBroadcaster] fetchSnapshot error:", message);
-      return { notifications: [], error: message };
+      return { notifications: [], error: message, limit };
     }
   }
 
   private broadcast(
     notifications: DashboardNotificationRecord[],
     type: "snapshot" | "append",
+    limit: number,
   ): void {
     for (const callback of this.subscribers) {
       try {
-        callback(notifications, type, this.limit);
+        callback(notifications, type, limit);
       } catch (err) {
         console.error("[MuxServer] Notification broadcast subscriber threw:", err);
       }

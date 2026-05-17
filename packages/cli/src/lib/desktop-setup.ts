@@ -17,6 +17,7 @@ import {
 
 const APP_NAME = "AO Notifier.app";
 const EXECUTABLE_NAME = "ao-notifier";
+const PLACEHOLDER_MARKER_NAME = "ao-notifier-placeholder";
 const DESKTOP_BACKENDS = ["auto", "ao-app", "terminal-notifier", "osascript"] as const;
 
 type DesktopBackend = (typeof DESKTOP_BACKENDS)[number];
@@ -114,16 +115,24 @@ export function getNotifierExecutablePath(appPath: string): string {
   return join(appPath, "Contents", "MacOS", EXECUTABLE_NAME);
 }
 
+function getNotifierPlaceholderMarkerPath(appPath: string): string {
+  return join(appPath, "Contents", "Resources", PLACEHOLDER_MARKER_NAME);
+}
+
+function isPlaceholderNotifierApp(appPath: string): boolean {
+  return existsSync(getNotifierPlaceholderMarkerPath(appPath));
+}
+
 function isAppInstalled(appPath = getInstalledNotifierAppPath()): boolean {
-  return existsSync(getNotifierExecutablePath(appPath));
+  return existsSync(getNotifierExecutablePath(appPath)) && !isPlaceholderNotifierApp(appPath);
 }
 
 function commandExists(command: string): boolean {
   try {
-    execFileSync("which", [command], { stdio: "ignore" });
+    execFileSync(command, ["--version"], { stdio: "ignore", windowsHide: true });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ENOENT";
   }
 }
 
@@ -227,11 +236,18 @@ function copyBundledApp(targetAppPath = getInstalledNotifierAppPath()): string {
     );
   }
 
+  if (isPlaceholderNotifierApp(sourceAppPath)) {
+    throw new DesktopSetupError(
+      "AO Notifier.app was built as a non-macOS placeholder and cannot be installed. " +
+        "Rebuild @aoagents/ao-notifier-macos on macOS, or use --backend terminal-notifier.",
+    );
+  }
+
   mkdirSync(dirname(targetAppPath), { recursive: true });
   rmSync(targetAppPath, { recursive: true, force: true });
   cpSync(sourceAppPath, targetAppPath, { recursive: true });
 
-  if (!existsSync(getNotifierExecutablePath(targetAppPath))) {
+  if (!isAppInstalled(targetAppPath)) {
     throw new DesktopSetupError(`AO Notifier.app install failed at ${targetAppPath}`);
   }
 

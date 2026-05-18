@@ -6,8 +6,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { recordActivityEventMock } = vi.hoisted(() => ({
+const { recordActivityEventMock, requestMock } = vi.hoisted(() => ({
   recordActivityEventMock: vi.fn(),
+  requestMock: vi.fn(),
+}));
+
+vi.mock("node:https", () => ({
+  request: requestMock,
 }));
 
 vi.mock("@aoagents/ao-core", async () => {
@@ -27,6 +32,8 @@ import type { ProjectConfig } from "@aoagents/ao-core";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  recordActivityEventMock.mockReset();
+  requestMock.mockReset();
   _resetDepMissingEmittedForTesting();
   process.env.COMPOSIO_API_KEY = "test-key";
   process.env.COMPOSIO_ENTITY_ID = "test-entity";
@@ -36,6 +43,8 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.COMPOSIO_API_KEY;
   delete process.env.COMPOSIO_ENTITY_ID;
+  delete process.env.LINEAR_API_KEY;
+  vi.useRealTimers();
 });
 
 function makeProject(): ProjectConfig {
@@ -83,5 +92,52 @@ describe("tracker.dep_missing (MUST emit)", () => {
       ([event]) => event.kind === "tracker.dep_missing",
     );
     expect(depMissingCalls).toHaveLength(1);
+  });
+});
+
+describe("tracker.api_timeout", () => {
+  it("rejects direct transport timeouts even when activity logging throws", async () => {
+    delete process.env.COMPOSIO_API_KEY;
+    delete process.env.COMPOSIO_ENTITY_ID;
+    process.env.LINEAR_API_KEY = "linear-key";
+    vi.useFakeTimers();
+
+    const req = {
+      setTimeout: vi.fn(),
+      on: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+      destroy: vi.fn(),
+    };
+    req.setTimeout.mockImplementation((_timeoutMs: number, cb: () => void) => {
+      setTimeout(cb, 0);
+      return req;
+    });
+    req.on.mockReturnValue(req);
+    requestMock.mockReturnValue(req);
+    recordActivityEventMock.mockImplementationOnce(() => {
+      throw new Error("activity sink failed");
+    });
+
+    const tracker = create();
+    const timeoutExpectation = expect(tracker.getIssue("TEST-1", makeProject())).rejects.toThrow(
+      "Linear API request timed out after 30s",
+    );
+
+    await vi.runAllTimersAsync();
+    await timeoutExpectation;
+    expect(req.destroy).toHaveBeenCalled();
+    expect(recordActivityEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "tracker",
+        kind: "tracker.api_timeout",
+        level: "warn",
+        data: expect.objectContaining({
+          plugin: "tracker-linear",
+          transport: "direct",
+          timeoutMs: 30_000,
+        }),
+      }),
+    );
   });
 });

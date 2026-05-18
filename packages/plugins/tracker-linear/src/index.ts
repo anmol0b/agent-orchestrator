@@ -30,6 +30,14 @@ export function _resetDepMissingEmittedForTesting(): void {
   depMissingEmitted = false;
 }
 
+function recordTransportActivityEvent(event: Parameters<typeof recordActivityEvent>[0]): void {
+  try {
+    recordActivityEvent(event);
+  } catch {
+    // Activity logging must never prevent timeout promises from settling.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Transport abstraction
 // ---------------------------------------------------------------------------
@@ -121,7 +129,7 @@ function createDirectTransport(): GraphQLTransport {
       req.setTimeout(30_000, () => {
         settle(() => {
           req.destroy();
-          recordActivityEvent({
+          recordTransportActivityEvent({
             source: "tracker",
             kind: "tracker.api_timeout",
             level: "warn",
@@ -211,7 +219,7 @@ function createComposioTransport(apiKey: string, entityId: string): GraphQLTrans
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
-        recordActivityEvent({
+        recordTransportActivityEvent({
           source: "tracker",
           kind: "tracker.api_timeout",
           level: "warn",

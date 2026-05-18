@@ -637,6 +637,41 @@ describe("workspace.list()", () => {
     warnSpy.mockRestore();
   });
 
+  it("emits corrupt_clone_skipped only once per clone path", async () => {
+    const workspace = create();
+    (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    (fs.readdirSync as ReturnType<typeof vi.fn>).mockReturnValue([
+      { name: "corrupt-repeat", isDirectory: () => true },
+    ]);
+
+    mockGitError("fatal: not a git repository");
+    mockGitError("fatal: not a git repository");
+
+    await expect(workspace.list("myproject")).resolves.toEqual([]);
+    await expect(workspace.list("myproject")).resolves.toEqual([]);
+
+    const corruptCloneCalls = recordActivityEventMock.mock.calls.filter(
+      ([event]) => event.kind === "workspace.corrupt_clone_skipped",
+    );
+    expect(corruptCloneCalls).toHaveLength(1);
+    expect(corruptCloneCalls[0][0]).toEqual(
+      expect.objectContaining({
+        projectId: "myproject",
+        sessionId: "corrupt-repeat",
+        source: "workspace",
+        kind: "workspace.corrupt_clone_skipped",
+        data: expect.objectContaining({
+          clonePath: "/mock-home/.ao-clones/myproject/corrupt-repeat",
+        }),
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it("rejects invalid projectId with special characters", async () => {
     const workspace = create();
 

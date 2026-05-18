@@ -53,6 +53,8 @@ function isBranchAlreadyExistsError(err: unknown): boolean {
   return getErrorMessage(err).toLowerCase().includes("already exists");
 }
 
+const emittedCorruptClonePaths = new Set<string>();
+
 export function create(config?: Record<string, unknown>): Workspace {
   const cloneBaseDir = config?.cloneDir
     ? expandPath(config.cloneDir as string)
@@ -179,19 +181,22 @@ export function create(config?: Record<string, unknown>): Workspace {
           const msg = err instanceof Error ? err.message : String(err);
           // eslint-disable-next-line no-console -- expected diagnostic for corrupted clones
           console.warn(`[workspace-clone] Skipping "${entry.name}": not a valid git repo (${msg})`);
-          recordActivityEvent({
-            projectId,
-            sessionId: entry.name,
-            source: "workspace",
-            kind: "workspace.corrupt_clone_skipped",
-            level: "warn",
-            summary: `skipped corrupt clone "${entry.name}"`,
-            data: {
-              plugin: "workspace-clone",
-              clonePath,
-              errorMessage: msg,
-            },
-          });
+          if (!emittedCorruptClonePaths.has(clonePath)) {
+            emittedCorruptClonePaths.add(clonePath);
+            recordActivityEvent({
+              projectId,
+              sessionId: entry.name,
+              source: "workspace",
+              kind: "workspace.corrupt_clone_skipped",
+              level: "warn",
+              summary: `skipped corrupt clone "${entry.name}"`,
+              data: {
+                plugin: "workspace-clone",
+                clonePath,
+                errorMessage: msg,
+              },
+            });
+          }
           continue;
         }
 

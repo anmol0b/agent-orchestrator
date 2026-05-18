@@ -3,8 +3,13 @@ import {
   readLastJsonlEntry,
   normalizeAgentPermissionMode,
   isWindows,
+  PROCESS_PROBE_INDETERMINATE,
   DEFAULT_READY_THRESHOLD_MS,
   DEFAULT_ACTIVE_WINDOW_MS,
+  readLastActivityEntry,
+  checkActivityLogState,
+  getActivityFallbackState,
+  recordTerminalActivity,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -13,6 +18,7 @@ import {
   type CostEstimate,
   type PluginModule,
   type ProjectConfig,
+  type ProcessProbeResult,
   type RuntimeHandle,
   type Session,
   type WorkspaceHooksConfig,
@@ -616,7 +622,12 @@ function extractCost(lines: JsonlLine[]): CostEstimate | undefined {
  * with many processes. The cache ensures `ps` is called at most once per TTL
  * window regardless of how many sessions are being enriched.
  */
-let psCache: { output: string; timestamp: number; promise?: Promise<string> } | null = null;
+type ProcessListResult = string | typeof PROCESS_PROBE_INDETERMINATE;
+let psCache: {
+  output: ProcessListResult;
+  timestamp: number;
+  promise?: Promise<ProcessListResult>;
+} | null = null;
 const PS_CACHE_TTL_MS = 5_000;
 
 /** Reset the ps cache. Exported for testing only. */
@@ -624,7 +635,7 @@ export function resetPsCache(): void {
   psCache = null;
 }
 
-async function getCachedProcessList(): Promise<string> {
+async function getCachedProcessList(): Promise<ProcessListResult> {
   // ps -eo is a Unix-only command; on Windows the tmux branch is never taken
   // in normal operation, but guard here to avoid a spurious spawn error if
   // a stale tmux handle is encountered.
@@ -640,41 +651,42 @@ async function getCachedProcessList(): Promise<string> {
   // Guard both callbacks so they only update psCache if it still belongs to
   // this request — a newer request may have replaced it while we were waiting.
   const promise = execFileAsync("ps", ["-eo", "pid,tty,args"], {
-    timeout: 5_000,
-  }).then(({ stdout }) => {
-    if (psCache?.promise === promise) {
-      psCache = { output: stdout, timestamp: Date.now() };
-    }
-    return stdout;
-  });
+    timeout: 30_000,
+  })
+    .then(({ stdout }) => {
+      if (psCache?.promise === promise) {
+        psCache = { output: stdout || PROCESS_PROBE_INDETERMINATE, timestamp: Date.now() };
+      }
+      return stdout || PROCESS_PROBE_INDETERMINATE;
+    })
+    .catch(() => {
+      if (psCache?.promise === promise) {
+        psCache = { output: PROCESS_PROBE_INDETERMINATE, timestamp: Date.now() };
+      }
+      return PROCESS_PROBE_INDETERMINATE;
+    });
 
   // Store the in-flight promise so concurrent callers share it
   psCache = { output: "", timestamp: now, promise };
 
-  try {
-    return await promise;
-  } catch {
-    // On failure, clear cache so the next caller retries — but only if
-    // psCache still points to this request (avoid clobbering a newer entry)
-    if (psCache?.promise === promise) {
-      psCache = null;
-    }
-    return "";
-  }
+  return promise;
 }
 
 /**
  * Check if a process named "claude" is running in the given runtime handle's context.
  * Uses ps to find processes by TTY (for tmux) or by PID.
  */
-async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> {
+async function findClaudeProcess(
+  handle: RuntimeHandle,
+): Promise<number | null | typeof PROCESS_PROBE_INDETERMINATE> {
   try {
     // For tmux runtime, get the pane TTY and find claude on it
     if (handle.runtimeName === "tmux" && handle.id) {
+      if (isWindows()) return null;
       const { stdout: ttyOut } = await execFileAsync(
         "tmux",
         ["list-panes", "-t", handle.id, "-F", "#{pane_tty}"],
-        { timeout: 5_000 },
+        { timeout: 30_000 },
       );
       // Iterate all pane TTYs (multi-pane sessions) — succeed on any match
       const ttys = ttyOut
@@ -685,7 +697,7 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
       if (ttys.length === 0) return null;
 
       const psOut = await getCachedProcessList();
-      if (!psOut) return null;
+      if (psOut === PROCESS_PROBE_INDETERMINATE) return PROCESS_PROBE_INDETERMINATE;
 
       const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
       // Match "claude" as a word boundary — prevents false positives on
@@ -721,7 +733,7 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
     // No reliable way to identify the correct process for this session
     return null;
   } catch {
-    return null;
+    return PROCESS_PROBE_INDETERMINATE;
   }
 }
 
@@ -939,8 +951,16 @@ function createClaudeCodeAgent(): Agent {
       return classifyTerminalOutput(terminalOutput);
     },
 
-    async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
+    async recordActivity(session: Session, terminalOutput: string): Promise<void> {
+      if (!session.workspacePath) return;
+      await recordTerminalActivity(session.workspacePath, terminalOutput, (output) =>
+        this.detectActivity(output),
+      );
+    },
+
+    async isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult> {
       const pid = await findClaudeProcess(handle);
+      if (pid === PROCESS_PROBE_INDETERMINATE) return PROCESS_PROBE_INDETERMINATE;
       return pid !== null;
     },
 
@@ -954,6 +974,7 @@ function createClaudeCodeAgent(): Agent {
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
+      if (running === PROCESS_PROBE_INDETERMINATE) return null;
       if (!running) return { state: "exited", timestamp: exitedAt };
 
       // Process is running - check JSONL session file for activity
@@ -966,51 +987,67 @@ function createClaudeCodeAgent(): Agent {
       const projectDir = join(homedir(), ".claude", "projects", projectPath);
 
       const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) {
-        // No session file yet — process is running but no conversation started.
-        // Treat as idle (waiting for first task).
-        return { state: "idle", timestamp: session.createdAt };
+      let staleNativeState: ActivityDetection | null = null;
+      if (sessionFile) {
+        const entry = await readLastJsonlEntry(sessionFile);
+        if (entry) {
+          // If the JSONL entry predates this session, it's from a previous session
+          // in the same worktree. Fall through to the AO safety net first: the
+          // terminal may have already surfaced waiting_input/blocked before
+          // Claude writes this session's first native JSONL entry.
+          if (session.createdAt && entry.modifiedAt < session.createdAt) {
+            staleNativeState = { state: "idle", timestamp: session.createdAt };
+          } else {
+            const ageMs = Date.now() - entry.modifiedAt.getTime();
+            const timestamp = entry.modifiedAt;
+
+            const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
+            switch (entry.lastType) {
+              case "user":
+              case "tool_use":
+              case "progress":
+                if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+              case "assistant":
+              case "system":
+              case "summary":
+              case "result":
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+              case "permission_request":
+                return { state: "waiting_input", timestamp };
+
+              case "error":
+                return { state: "blocked", timestamp };
+
+              default:
+                if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+            }
+          }
+        }
+
+        // Session file exists but no parseable entry — fall through to AO JSONL
+        // checks below instead of returning early, so terminal-derived
+        // waiting_input/blocked can still be detected.
       }
 
-      const entry = await readLastJsonlEntry(sessionFile);
-      if (!entry) {
-        // Empty file or read error — cannot determine activity
-        return null;
-      }
+      // Fallback: check AO activity JSONL (terminal-derived) for
+      // waiting_input/blocked when Claude's native JSONL is unavailable.
+      const activityResult = await readLastActivityEntry(session.workspacePath);
+      const activityState = checkActivityLogState(activityResult);
+      if (activityState) return activityState;
 
-      // If the JSONL entry predates this session, it's from a previous session
-      // in the same worktree. Treat as no data (agent hasn't written yet).
-      if (session.createdAt && entry.modifiedAt < session.createdAt) {
-        return { state: "idle", timestamp: session.createdAt };
-      }
-
-      const ageMs = Date.now() - entry.modifiedAt.getTime();
-      const timestamp = entry.modifiedAt;
-
+      // Last fallback: use the AO entry with age-based decay when native
+      // session lookup is missing or unparseable (e.g. Claude project slug drift).
       const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
-      switch (entry.lastType) {
-        case "user":
-        case "tool_use":
-        case "progress":
-          if (ageMs <= activeWindowMs) return { state: "active", timestamp };
-          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+      const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
+      if (fallback) return fallback;
 
-        case "assistant":
-        case "system":
-        case "summary":
-        case "result":
-          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+      if (staleNativeState) return staleNativeState;
 
-        case "permission_request":
-          return { state: "waiting_input", timestamp };
-
-        case "error":
-          return { state: "blocked", timestamp };
-
-        default:
-          if (ageMs <= activeWindowMs) return { state: "active", timestamp };
-          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-      }
+      return null;
     },
 
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {

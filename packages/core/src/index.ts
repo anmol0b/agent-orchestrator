@@ -175,10 +175,7 @@ export {
   resetOpenCodeSessionListCache,
 } from "./opencode-shared.js";
 export type { OpenCodeSessionListEntry } from "./opencode-shared.js";
-export {
-  getWorkspaceAgentsMdPath,
-  writeWorkspaceOpenCodeAgentsMd,
-} from "./opencode-agents-md.js";
+export { getWorkspaceAgentsMdPath, writeWorkspaceOpenCodeAgentsMd } from "./opencode-agents-md.js";
 export { writeOpenCodeConfig } from "./opencode-config.js";
 export {
   getOrchestratorSessionId,
@@ -287,6 +284,7 @@ export {
 export {
   isWindows,
   isMac,
+  isLinux,
   getDefaultRuntime,
   getShell,
   killProcessTree,
@@ -302,6 +300,7 @@ export {
   isCanonicalGlobalConfigPath,
   loadGlobalConfig,
   saveGlobalConfig,
+  createDefaultGlobalConfig,
   loadLocalProjectConfig,
   LocalProjectConfigSchema,
   loadLocalProjectConfigDetailed,
@@ -321,7 +320,24 @@ export type {
   LocalProjectConfig,
   LocalProjectConfigLoadResult,
   RegisterProjectOptions,
+  UpdateChannel,
+  InstallMethodOverride,
 } from "./global-config.js";
+export { UpdateChannelSchema, InstallMethodOverrideSchema } from "./global-config.js";
+
+// Channel-aware semver comparison shared by the CLI's update-check and the
+// dashboard's /api/version route.
+export { isVersionOutdated } from "./version-compare.js";
+
+// Cache-layer primitives for the update pipeline. Both the CLI and the
+// dashboard's /api/version route read the same cache file; centralising the
+// path + shape here prevents drift.
+export {
+  getUpdateCheckCachePath,
+  readUpdateCheckCacheRaw,
+  getInstalledAoVersion,
+} from "./update-cache.js";
+export type { UpdateCheckCacheRaw } from "./update-cache.js";
 
 export { loadEffectiveProjectConfig, iterateAllProjects } from "./project-resolver.js";
 
@@ -404,6 +420,25 @@ export {
   clearWindowsPtyHostRegistry,
   type WindowsPtyHostEntry,
 } from "./windows-pty-registry.js";
+
+export {
+  registerDaemonChild,
+  unregisterDaemonChild,
+  getDaemonChildren,
+  clearDaemonChildrenRegistry,
+  markDaemonShutdownHandlerInstalled,
+  registerChildReaper,
+  spawnManagedDaemonChild,
+  sweepDaemonChildren,
+  classifyAoOrphanCommand,
+  detectAoOrphansFromPsOutput,
+  scanAoOrphans,
+  reapAoOrphans,
+  type DaemonChildEntry,
+  type DaemonChildSweepOptions,
+  type DaemonChildSweepResult,
+  type AoOrphanProcess,
+} from "./daemon-children.js";
 
 // Activity event logging — structured diagnostic event trail
 export { recordActivityEvent, droppedEventCount } from "./activity-events.js";

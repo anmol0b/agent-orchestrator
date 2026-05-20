@@ -99,6 +99,21 @@ describe("remote auth middleware", () => {
     expect(response.status).toBe(401);
   });
 
+  it("allows loopback forwarded addresses from the local Next server", () => {
+    vi.stubEnv("AO_REMOTE_AUTH_USER", "ao");
+    vi.stubEnv("AO_REMOTE_AUTH_PASSWORD", "secret");
+    vi.stubEnv("AO_TRUST_REMOTE_ADDRESS_HEADER", "1");
+
+    const response = middleware(
+      request("/api/projects", undefined, {
+        "x-ao-remote-address": "::ffff:127.0.0.1",
+        "x-forwarded-for": "::ffff:127.0.0.1",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it("requires credentials for Cloudflare-proxied requests from loopback", () => {
     vi.stubEnv("AO_REMOTE_AUTH_USER", "ao");
     vi.stubEnv("AO_REMOTE_AUTH_PASSWORD", "secret");

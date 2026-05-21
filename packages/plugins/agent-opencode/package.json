@@ -1,6 +1,6 @@
 {
   "name": "@aoagents/ao-plugin-agent-opencode",
-  "version": "0.8.0",
+  "version": "0.9.0-nightly-a66a087ef678313bf3a78dfe70aadee9adc25935",
   "description": "Agent plugin: OpenCode",
   "license": "MIT",
   "type": "module",

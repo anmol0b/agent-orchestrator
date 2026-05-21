@@ -168,6 +168,21 @@ export function SessionDetailHeader({
           ) : null}
           {isOrchestrator ? (
             <span className="session-detail-mode-badge session-detail-mode-badge--neutral">
+              <svg
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="5" r="2" fill="currentColor" stroke="none" />
+                <path d="M12 7v4M12 11H6M12 11h6M6 11v3M12 11v3M18 11v3" />
+                <circle cx="6" cy="17" r="2" />
+                <circle cx="12" cy="17" r="2" />
+                <circle cx="18" cy="17" r="2" />
+              </svg>
               Orchestrator
             </span>
           ) : null}

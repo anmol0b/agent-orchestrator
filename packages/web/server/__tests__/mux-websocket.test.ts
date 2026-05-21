@@ -939,6 +939,24 @@ describe("NotificationBroadcaster", () => {
     unsubscribe();
   });
 
+  it("ignores a whitespace-only env store path", () => {
+    const daemonStorePath = getDaemonDashboardNotificationStorePath();
+    writeRunningState(daemonStorePath);
+    appendDaemonEvent("evt-daemon", "2026-05-13T12:00:02.000Z", daemonStorePath);
+    const broadcaster = new NotificationBroadcaster(configPath, "   ");
+    const callback = vi.fn();
+
+    const unsubscribe = broadcaster.subscribe(callback);
+
+    expect(callback).toHaveBeenCalledWith(
+      [expect.objectContaining({ event: expect.objectContaining({ id: "evt-daemon" }) })],
+      "snapshot",
+      2,
+    );
+
+    unsubscribe();
+  });
+
   it("does not let a new subscriber suppress appends for existing subscribers", () => {
     appendEvent("evt-1", "2026-05-13T12:00:01.000Z");
     const broadcaster = new NotificationBroadcaster(configPath);

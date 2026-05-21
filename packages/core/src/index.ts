@@ -388,6 +388,7 @@ export {
   normalizeDashboardNotificationLimit,
   readDashboardNotifications,
   readDashboardNotificationsFromFile,
+  validateDashboardNotificationStorePath,
   writeDashboardNotificationsToFile,
   type DashboardNotificationEventData,
   type DashboardNotificationRecord,

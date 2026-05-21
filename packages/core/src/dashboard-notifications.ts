@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type { NotifyAction, OrchestratorEvent } from "./types.js";
 import type { NotificationDataV3 } from "./notification-data.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
@@ -68,8 +68,8 @@ function getRunningStatePath(): string {
   return join(getAoBaseDir(), "running.json");
 }
 
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
+export function validateDashboardNotificationStorePath(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 && isAbsolute(value) ? value : null;
 }
 
 interface LiveDashboardNotificationStoreCache {
@@ -98,7 +98,7 @@ export function getLiveDashboardNotificationStorePath(): string | null {
     if (typeof pid !== "number" || !isProcessAlive(pid)) return null;
 
     const storePath =
-      nonEmptyString(state["dashboardNotificationStore"]) ??
+      validateDashboardNotificationStorePath(state["dashboardNotificationStore"]) ??
       getDaemonDashboardNotificationStorePath();
     liveDashboardNotificationStoreCache = { runningStatePath, pid, storePath };
     return storePath;

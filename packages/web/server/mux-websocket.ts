@@ -23,6 +23,7 @@ import {
   normalizeDashboardNotificationLimit,
   recordActivityEvent,
   readDashboardNotificationsFromFile,
+  validateDashboardNotificationStorePath,
   type DashboardNotificationRecord,
 } from "@aoagents/ao-core";
 import {
@@ -268,8 +269,7 @@ export class NotificationBroadcaster {
     envStorePath = process.env["AO_DASHBOARD_NOTIFICATION_STORE"],
   ) {
     this.configPath = configPath;
-    this.envStorePath =
-      typeof envStorePath === "string" && envStorePath.length > 0 ? envStorePath : null;
+    this.envStorePath = validateDashboardNotificationStorePath(envStorePath);
   }
 
   private getStorePath(): string | null {

@@ -7,6 +7,7 @@ import { buildCIFailureNotificationData } from "../notification-data.js";
 import {
   appendDashboardNotificationRecord,
   createDashboardNotificationRecord,
+  getDaemonDashboardNotificationStorePath,
   getLiveDashboardNotificationStorePath,
   normalizeDashboardNotificationLimit,
   readDashboardNotificationsFromFile,
@@ -186,6 +187,46 @@ describe("dashboard notifications", () => {
       );
 
       expect(getLiveDashboardNotificationStorePath()).toBe(storePath);
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env["HOME"];
+      } else {
+        process.env["HOME"] = originalHome;
+      }
+      if (originalUserProfile === undefined) {
+        delete process.env["USERPROFILE"];
+      } else {
+        process.env["USERPROFILE"] = originalUserProfile;
+      }
+    }
+  });
+
+  it("falls back to the daemon store for invalid live daemon store paths", () => {
+    tempDir = mkdtempSync(join(tmpdir(), "ao-dashboard-notifications-invalid-live-"));
+    const originalHome = process.env["HOME"];
+    const originalUserProfile = process.env["USERPROFILE"];
+
+    try {
+      process.env["HOME"] = tempDir;
+      process.env["USERPROFILE"] = tempDir;
+      const stateDir = join(tempDir, ".agent-orchestrator");
+      mkdirSync(stateDir, { recursive: true });
+
+      writeFileSync(
+        join(stateDir, "running.json"),
+        JSON.stringify({
+          pid: process.pid,
+          configPath: join(tempDir, "project", "agent-orchestrator.yaml"),
+          port: 3000,
+          startedAt: "2026-05-22T00:00:00.000Z",
+          projects: ["demo"],
+          dashboardNotificationStore: "   ",
+        }),
+      );
+
+      expect(getLiveDashboardNotificationStorePath()).toBe(
+        getDaemonDashboardNotificationStorePath(),
+      );
     } finally {
       if (originalHome === undefined) {
         delete process.env["HOME"];

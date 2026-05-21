@@ -434,7 +434,7 @@ describe("SessionDetail desktop layout", () => {
     expect(banner.getByText("working")).toBeInTheDocument();
     expect(banner.getByText("pending")).toBeInTheDocument();
     expect(banner.getByText("done")).toBeInTheDocument();
-    expect(banner.getAllByText("my-app-orchestrator").length).toBeGreaterThan(0);
+    expect(banner.queryByText("my-app-orchestrator")).not.toBeInTheDocument();
     expect(banner.getByRole("link", { name: "Open Kanban" })).toHaveAttribute(
       "href",
       "/projects/my-app",

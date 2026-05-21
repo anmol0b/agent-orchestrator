@@ -186,7 +186,11 @@ export function SessionDetailHeader({
               Orchestrator
             </span>
           ) : null}
-          <span className="dashboard-app-header__session-id topbar-mobile-only">{session.id}</span>
+          {!isOrchestrator ? (
+            <span className="dashboard-app-header__session-id topbar-mobile-only">
+              {session.id}
+            </span>
+          ) : null}
         </div>
         <div className="topbar-session-pills">
           <div
@@ -225,7 +229,9 @@ export function SessionDetailHeader({
           </span>
         </>
       ) : null}
-      <span className="dashboard-app-header__session-id topbar-desktop-only">{session.id}</span>
+      {!isOrchestrator ? (
+        <span className="dashboard-app-header__session-id topbar-desktop-only">{session.id}</span>
+      ) : null}
       <div className="dashboard-app-header__spacer" />
       <div className="dashboard-app-header__actions">
         <DashboardNotificationButton />

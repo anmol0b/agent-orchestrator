@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Orchestrator — Architecture</title>
+<style>
+  :root {
+    /* base surface */
+    --bg:        #0b0e14;
+    --bg-2:      #11151f;
+    --panel:     #151b27;
+    --panel-2:   #1b2330;
+    --border:    #232c3d;
+    --border-2:  #2f3a4f;
+    /* text */
+    --fg:        #e6ebf2;
+    --fg-dim:    #aab4c5;
+    --fg-mute:   #6b7689;
+    /* accents */
+    --accent:    #6ea8ff;
+    --accent-2:  #9d7bff;
+    --code-bg:   #0d1119;
+    --code-fg:   #d7e0ee;
+    /* plugin-slot color system */
+    --slot-runtime:   #f2845c;
+    --slot-agent:     #6ea8ff;
+    --slot-workspace: #4fd1a1;
+    --slot-tracker:   #f5c451;
+    --slot-scm:       #9d7bff;
+    --slot-notifier:  #f06595;
+    --slot-terminal:  #38c7d4;
+    --slot-lifecycle: #a3b1c6;
+    /* state colors */
+    --ok:   #4fd1a1;
+    --warn: #f5c451;
+    --err:  #f06585;
+    --radius: 12px;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 700px at 80% -10%, #16203180 0%, transparent 60%), var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---------- layout ---------- */
+  .shell { display: grid; grid-template-columns: 290px 1fr; max-width: 1500px; margin: 0 auto; }
+  nav.toc {
+    position: sticky; top: 0; align-self: start;
+    height: 100vh; overflow-y: auto;
+    padding: 28px 18px 60px 28px;
+    border-right: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  }
+  nav.toc .brand { display:flex; align-items:center; gap:10px; margin-bottom: 6px; }
+  nav.toc .brand .logo {
+    width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display:grid; place-items:center; font-weight:800; color:#0b0e14; font-size: 18px;
+  }
+  nav.toc .brand b { font-size: 17px; letter-spacing:.2px; }
+  nav.toc .tagline { color: var(--fg-mute); font-size: 12.5px; margin: 0 0 22px 2px; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: sec; }
+  nav.toc > ol > li > a {
+    counter-increment: sec;
+    display: block; padding: 7px 10px; border-radius: 8px;
+    color: var(--fg-dim); font-size: 13.5px; font-weight: 600;
+    border: 1px solid transparent;
+  }
+  nav.toc > ol > li > a::before { content: counter(sec) ".  "; color: var(--fg-mute); font-variant-numeric: tabular-nums; }
+  nav.toc > ol > li > a:hover { background: var(--panel); color: var(--fg); text-decoration: none; border-color: var(--border); }
+  nav.toc .sub { list-style: none; margin: 2px 0 8px 14px; padding: 0; border-left: 1px solid var(--border); }
+  nav.toc .sub li a { display:block; padding: 4px 12px; color: var(--fg-mute); font-size: 12.5px; }
+  nav.toc .sub li a:hover { color: var(--accent); text-decoration: none; }
+
+  main { padding: 46px 56px 120px; min-width: 0; }
+  .hero { margin-bottom: 40px; }
+  .hero h1 { font-size: 40px; line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.5px; }
+  .hero h1 .grad { background: linear-gradient(120deg, var(--accent), var(--accent-2) 70%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.lede { font-size: 18px; color: var(--fg-dim); max-width: 70ch; margin: 0 0 18px; }
+  .pills { display:flex; flex-wrap:wrap; gap:8px; }
+  .pill { font-size: 12px; padding: 5px 11px; border-radius: 999px; border:1px solid var(--border-2); background: var(--panel); color: var(--fg-dim); font-weight:600; }
+  .pill b { color: var(--fg); }
+
+  section { margin: 0 0 56px; scroll-margin-top: 24px; }
+  section > h2 {
+    font-size: 27px; margin: 0 0 6px; letter-spacing: -0.3px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+  }
+  section > h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; }
+  h3 { font-size: 19px; margin: 30px 0 8px; }
+  h4 { font-size: 15.5px; margin: 22px 0 6px; color: var(--fg); text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+  p { margin: 10px 0; }
+  .lede-2 { color: var(--fg-dim); }
+
+  /* ---------- callouts ---------- */
+  .why {
+    border-left: 3px solid var(--accent-2);
+    background: linear-gradient(90deg, #1a1530, transparent 90%);
+    padding: 12px 18px; border-radius: 0 8px 8px 0; margin: 16px 0;
+  }
+  .why b { color: var(--accent-2); }
+  .note {
+    border-left: 3px solid var(--warn);
+    background: linear-gradient(90deg, #2a2410, transparent 90%);
+    padding: 12px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14.5px;
+  }
+  .note b { color: var(--warn); }
+
+  /* ---------- code ---------- */
+  code.inl { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); border:1px solid var(--border); padding: 1px 6px; border-radius: 6px; color: var(--code-fg); }
+  .ref { font-family: var(--mono); font-size: 12px; color: var(--accent); background: #0e1626; border:1px solid var(--border); padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; overflow-x: auto; margin: 14px 0; line-height: 1.55;
+  }
+  pre code { font-family: var(--mono); font-size: 13px; color: var(--code-fg); }
+  .tok-k  { color: #c98fff; }
+  .tok-s  { color: #8fd98f; }
+  .tok-c  { color: #5e6b80; font-style: italic; }
+  .tok-f  { color: #6ea8ff; }
+  .tok-n  { color: #f5c451; }
+  .tok-t  { color: #4fd1a1; }
+
+  /* ---------- tables ---------- */
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--fg-mute); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border-2); }
+  tr:hover td { background: #ffffff05; }
+  td.mono, th.mono { font-family: var(--mono); font-size: 12.5px; }
+
+  /* ---------- slot grid ---------- */
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 14px; margin: 20px 0; }
+  .slot {
+    border: 1px solid var(--border); border-top: 3px solid var(--sc, var(--accent));
+    background: var(--panel); border-radius: 10px; padding: 14px 16px;
+  }
+  .slot .hd { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .slot h4 { margin: 0; color: var(--sc); text-transform: none; letter-spacing: 0; font-size: 16px; }
+  .slot .iface { font-family: var(--mono); font-size: 11px; color: var(--fg-mute); }
+  .slot p { margin: 8px 0 6px; font-size: 13px; color: var(--fg-dim); }
+  .slot .impls { display:flex; flex-wrap:wrap; gap:5px; margin-top: 8px; }
+  .slot .impls span { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--code-bg); border:1px solid var(--border); color: var(--fg-dim); }
+
+  /* ---------- diagram cards ---------- */
+  .diagram {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; margin: 18px 0;
+  }
+  .diagram .cap { font-size: 12.5px; color: var(--fg-mute); margin-bottom: 6px; text-transform: uppercase; letter-spacing:.5px; }
+  .mermaid { display:flex; justify-content:center; }
+
+  .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 1080px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .legend { display:flex; flex-wrap:wrap; gap: 14px; margin: 10px 0 4px; font-size: 12.5px; color: var(--fg-dim); }
+  .legend .k { display:inline-flex; align-items:center; gap:6px; }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; display:inline-block; }
+
+  footer { color: var(--fg-mute); font-size: 13px; border-top: 1px solid var(--border); padding-top: 18px; margin-top: 40px; }
+
+  /* mobile nav */
+  @media (max-width: 920px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    nav.toc .sub { display: none; }
+    main { padding: 28px 20px 80px; }
+    .hero h1 { font-size: 30px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<nav class="toc">
+  <div class="brand"><span class="logo">ao</span><b>Agent Orchestrator</b></div>
+  <p class="tagline">Architecture &amp; Internals</p>
+  <ol>
+    <li><a href="#overview">System overview</a>
+      <ul class="sub">
+        <li><a href="#what">What AO is</a></li>
+        <li><a href="#bigpicture">The big picture</a></li>
+      </ul>
+    </li>
+    <li><a href="#monorepo">Monorepo &amp; build order</a></li>
+    <li><a href="#plugins">The 8 plugin slots</a>
+      <ul class="sub">
+        <li><a href="#slot-grid">Slot catalogue</a></li>
+        <li><a href="#registry">Registry &amp; contract</a></li>
+      </ul>
+    </li>
+    <li><a href="#lifecycle">Session lifecycle</a>
+      <ul class="sub">
+        <li><a href="#canonical">Canonical states</a></li>
+        <li><a href="#legacy">Legacy derivation</a></li>
+        <li><a href="#statemachine">State machine</a></li>
+        <li><a href="#reactions">Polling &amp; reactions</a></li>
+      </ul>
+    </li>
+    <li><a href="#sessionmgr">Session manager</a></li>
+    <li><a href="#storage">Storage model</a></li>
+    <li><a href="#dataflow">End-to-end data flow</a></li>
+    <li><a href="#prompts">Prompt assembly</a></li>
+    <li><a href="#platform">Cross-platform</a></li>
+    <li><a href="#map">Code map</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="overview">
+  <h1>Agent Orchestrator<br><span class="grad">Architecture Design Doc</span></h1>
+  <p class="lede">A platform for spawning and supervising many parallel AI coding agents — each isolated in its own git worktree with its own PR — behind a single dashboard. Agents autonomously fix CI failures, address review comments, and drive their PRs to merge.</p>
+  <div class="pills">
+    <span class="pill"><b>~30</b> pnpm packages</span>
+    <span class="pill"><b>8</b> plugin slots</span>
+    <span class="pill"><b>0</b> databases — flat files</span>
+    <span class="pill">TypeScript · Node 20+</span>
+    <span class="pill">Next.js 15 · React 19</span>
+    <span class="pill">macOS · Linux · Windows</span>
+  </div>
+  <p class="lede-2" style="margin-top:16px;font-size:14px;color:var(--fg-mute)">Every major claim below cites real source as <span class="ref">file:line</span>. Verified against the tree on the <code class="inl">main</code> branch.</p>
+</header>
+
+<!-- ============ 1. OVERVIEW ============ -->
+<section id="what">
+  <h2><span class="num">1</span>System overview</h2>
+  <p>AO runs multiple coding agents (Claude Code, Codex, Aider, OpenCode, Cursor, Grok, Kimi) simultaneously. One call — <code class="inl">ao spawn &lt;project&gt; &lt;issue&gt;</code> — creates an isolated workspace, launches an agent inside a managed runtime, and wires up the feedback loops so that PR reviews and CI failures route back to the right agent automatically.</p>
+
+  <p>The defining design choice is that <b>every external dependency is a swappable plugin</b>. Where the agent runs, which AI tool it is, how code is isolated, where issues live, how PRs and CI are read, how you get notified, and how a human attaches to a terminal — all eight are pluggable interfaces resolved at startup. The orchestration <em>engine</em> in <code class="inl">packages/core</code> knows nothing concrete about tmux, GitHub, or Claude; it only knows the interfaces.</p>
+
+  <div class="why"><b>Why plugins?</b> The problem space is a matrix of "your runtime × your agent × your tracker × your SCM." Hard-coding any one combination would fork the project for every team. Plugin slots make the matrix a configuration concern (<span class="ref">agent-orchestrator.yaml</span>) rather than a code change. New capability = new plugin, not new branches in the core.</p>
+
+  <h3 id="bigpicture">The big picture</h3>
+  <p>The core engine sits in the middle. Plugins plug into its eight slots. A polling lifecycle manager drives state forward; a session manager owns CRUD and disk persistence; the Next.js dashboard observes everything over a multiplexed WebSocket.</p>
+
+  <div class="diagram">
+    <div class="cap">Figure 1 — Plugin-slot model around the core engine</div>
+    <pre class="mermaid">
+flowchart TB
+  subgraph CORE["packages/core — Orchestration Engine"]
+    direction TB
+    SM["Session Manager<br/><small>CRUD · spawn · restore · reconcile</small>"]
+    LM["Lifecycle Manager<br/><small>30s poll · state machine · reactions</small>"]
+    REG["Plugin Registry<br/><small>discover · resolve · instantiate</small>"]
+    SM --- LM
+    REG --- SM
+    REG --- LM
+  end
+
+  RT["RUNTIME<br/><small>tmux · process</small>"]:::runtime
+  AG["AGENT<br/><small>claude-code · codex · aider<br/>opencode · cursor · grok · kimi</small>"]:::agent
+  WS["WORKSPACE<br/><small>worktree · clone</small>"]:::workspace
+  TR["TRACKER<br/><small>github · linear · gitlab</small>"]:::tracker
+  SCM["SCM<br/><small>github · gitlab</small>"]:::scm
+  NO["NOTIFIER<br/><small>desktop · slack · discord<br/>webhook · composio · …</small>"]:::notifier
+  TE["TERMINAL<br/><small>iterm2 · web</small>"]:::terminal
+
+  RT  --- REG
+  AG  --- REG
+  WS  --- REG
+  TR  --- REG
+  SCM --- REG
+  NO  --- LM
+  TE  --- SM
+
+  CFG["agent-orchestrator.yaml"]:::cfg --> REG
+  LM --> WEB["Next.js Dashboard<br/><small>mux WebSocket → React + xterm.js</small>"]:::web
+
+  classDef runtime fill:#2a1c14,stroke:#f2845c,color:#ffd9c7;
+  classDef agent fill:#16223a,stroke:#6ea8ff,color:#cfe2ff;
+  classDef workspace fill:#11281f,stroke:#4fd1a1,color:#c4f0df;
+  classDef tracker fill:#2a2410,stroke:#f5c451,color:#f6e6b0;
+  classDef scm fill:#1f1830,stroke:#9d7bff,color:#ddd0ff;
+  classDef notifier fill:#2a1320,stroke:#f06595,color:#ffc9de;
+  classDef terminal fill:#102528,stroke:#38c7d4,color:#bdf0f5;
+  classDef cfg fill:#1b2330,stroke:#6b7689,color:#e6ebf2;
+  classDef web fill:#151b27,stroke:#6ea8ff,color:#e6ebf2;
+    </pre>
+  </div>
+
+  <div class="diagram">
+    <div class="cap">Figure 2 — Data flow at a glance</div>
+    <pre class="mermaid">
+flowchart LR
+  A["agent-orchestrator.yaml"] --> B["Config Loader<br/><small>Zod validate</small>"]
+  B --> C["Plugin Registry"]
+  C --> D["Session Manager"]
+  D --> E["Lifecycle Manager<br/><small>poll loop</small>"]
+  E --> F["Events"]
+  F --> G["Notifiers"]
+  D -. flat files .-> H[("~/.agent-orchestrator")]
+  E --> I["Next.js API routes"]
+  I --> J["mux WebSocket"]
+  J --> K["React Dashboard<br/>+ xterm.js"]
+  classDef d fill:#151b27,stroke:#2f3a4f,color:#e6ebf2;
+  class A,B,C,D,E,F,G,H,I,J,K d;
+    </pre>
+  </div>
+</section>
+
+<!-- ============ 2. MONOREPO ============ -->
+<section id="monorepo">
+  <h2><span class="num">2</span>Monorepo &amp; build order</h2>
+  <p>AO is a <b>pnpm workspace</b> (pnpm <code class="inl">9.15.4</code>, <span class="ref">package.json</span>) with roughly 30 packages. Cross-package dependencies use the <code class="inl">workspace:*</code> protocol so the whole graph builds from source.</p>
+
+  <pre><code><span class="tok-c"># root build — pnpm -r build, dependency-ordered</span>
+packages/
+  <span class="tok-f">core/</span>            <span class="tok-c"># engine: types, config, registry, session + lifecycle managers</span>
+  <span class="tok-f">cli/</span>             <span class="tok-c"># the `ao` command — depends on every plugin</span>
+  <span class="tok-f">web/</span>             <span class="tok-c"># Next.js 15 dashboard (App Router, React 19, xterm.js)</span>
+  <span class="tok-f">ao/</span>              <span class="tok-c"># global CLI wrapper (thin shim around cli)</span>
+  <span class="tok-f">notifier-macos/</span>  <span class="tok-c"># native macOS notifier helper</span>
+  <span class="tok-f">integration-tests/</span>
+  <span class="tok-f">plugins/</span>         <span class="tok-c"># 25 plugin packages, one per implementation</span>
+    agent-claude-code  agent-codex  agent-aider  agent-opencode
+    agent-cursor  agent-grok  agent-kimicode
+    runtime-tmux  runtime-process
+    workspace-worktree  workspace-clone
+    tracker-github  tracker-linear  tracker-gitlab
+    scm-github  scm-gitlab
+    notifier-desktop  notifier-slack  notifier-discord  notifier-webhook
+    notifier-composio  notifier-dashboard  notifier-openclaw
+    terminal-iterm2  terminal-web</code></pre>
+
+  <div class="diagram">
+    <div class="cap">Figure 3 — Monorepo dependency &amp; build order</div>
+    <pre class="mermaid">
+flowchart TD
+  CORE["@aoagents/ao-core<br/><small>types · config · registry<br/>session + lifecycle managers</small>"]:::core
+  PLUGINS["25 plugin packages<br/><small>@aoagents/ao-plugin-*</small>"]:::plug
+  CLI["@aoagents/ao-cli<br/><small>the `ao` command</small>"]:::leaf
+  WEB["@aoagents/ao-web<br/><small>Next.js dashboard</small>"]:::leaf
+  AO["ao<br/><small>global shim</small>"]:::leaf
+
+  CORE --> PLUGINS
+  CORE --> CLI
+  CORE --> WEB
+  PLUGINS --> CLI
+  CLI --> AO
+
+  classDef core fill:#16223a,stroke:#6ea8ff,color:#cfe2ff;
+  classDef plug fill:#11281f,stroke:#4fd1a1,color:#c4f0df;
+  classDef leaf fill:#151b27,stroke:#2f3a4f,color:#e6ebf2;
+    </pre>
+  </div>
+  <p>Build order is therefore <b>core → plugins → cli / web</b> (cli and web build in parallel once their deps are ready). Core is the only barrel-exported package (<span class="ref">packages/core/src/index.ts</span>) and forms the stable public API every plugin imports as <code class="inl">@aoagents/ao-core</code>.</p>
+</section>
+
+<!-- ============ 3. PLUGINS ============ -->
+<section id="plugins">
+  <h2><span class="num">3</span>The 8 plugin slots</h2>
+  <p>All slot interfaces live in <span class="ref">packages/core/src/types.ts</span>. Each is async-first (every I/O method returns a <code class="inl">Promise</code>), and plugins never call each other directly — they communicate only through the <code class="inl">Session</code> object and the lifecycle manager.</p>
+
+  <div class="legend" id="slot-grid">
+    <span class="k"><span class="sw" style="background:var(--slot-runtime)"></span>Runtime</span>
+    <span class="k"><span class="sw" style="background:var(--slot-agent)"></span>Agent</span>
+    <span class="k"><span class="sw" style="background:var(--slot-workspace)"></span>Workspace</span>
+    <span class="k"><span class="sw" style="background:var(--slot-tracker)"></span>Tracker</span>
+    <span class="k"><span class="sw" style="background:var(--slot-scm)"></span>SCM</span>
+    <span class="k"><span class="sw" style="background:var(--slot-notifier)"></span>Notifier</span>
+    <span class="k"><span class="sw" style="background:var(--slot-terminal)"></span>Terminal</span>
+    <span class="k"><span class="sw" style="background:var(--slot-lifecycle)"></span>Lifecycle (non-pluggable)</span>
+  </div>
+
+  <div class="slots">
+    <div class="slot" style="--sc:var(--slot-runtime)">
+      <div class="hd"><h4>Runtime</h4><span class="iface">types.ts:394</span></div>
+      <p>Where agents execute. Owns the process/PTY: <code class="inl">create</code>, <code class="inl">destroy</code>, <code class="inl">sendMessage</code>, <code class="inl">getOutput</code>, <code class="inl">isAlive</code>.</p>
+      <div class="impls"><span>tmux</span><span>process</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-agent)">
+      <div class="hd"><h4>Agent</h4><span class="iface">types.ts:477</span></div>
+      <p>Which AI tool. Owns introspection: <code class="inl">getLaunchCommand</code>, <code class="inl">getActivityState</code>, <code class="inl">isProcessRunning</code>, <code class="inl">getSessionInfo</code>, <code class="inl">setupWorkspaceHooks</code>.</p>
+      <div class="impls"><span>claude-code</span><span>codex</span><span>aider</span><span>opencode</span><span>cursor</span><span>grok</span><span>kimicode</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-workspace)">
+      <div class="hd"><h4>Workspace</h4><span class="iface">types.ts:656</span></div>
+      <p>Code isolation. <code class="inl">create</code>, <code class="inl">destroy</code>, <code class="inl">list</code>, plus optional <code class="inl">exists</code>/<code class="inl">restore</code> for session revival.</p>
+      <div class="impls"><span>worktree</span><span>clone</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-tracker)">
+      <div class="hd"><h4>Tracker</h4><span class="iface">types.ts:713</span></div>
+      <p>Issue tracking. <code class="inl">getIssue</code>, <code class="inl">isCompleted</code>, <code class="inl">branchName</code>, <code class="inl">generatePrompt</code>, optional <code class="inl">listIssues</code>/<code class="inl">createIssue</code>.</p>
+      <div class="impls"><span>github</span><span>linear</span><span>gitlab</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-scm)">
+      <div class="hd"><h4>SCM</h4><span class="iface">types.ts:794</span></div>
+      <p>PRs, CI, reviews. Largest interface: <code class="inl">detectPR</code>, <code class="inl">getCIChecks</code>, <code class="inl">getReviews</code>, <code class="inl">getMergeability</code>, <code class="inl">mergePR</code>, batch <code class="inl">enrichSessionsPRBatch</code>.</p>
+      <div class="impls"><span>github</span><span>gitlab</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-notifier)">
+      <div class="hd"><h4>Notifier</h4><span class="iface">types.ts:1170</span></div>
+      <p>Delivery. <code class="inl">notify(event)</code>, optional <code class="inl">notifyWithActions</code> and <code class="inl">post</code>. The only slot that can register multiple instances.</p>
+      <div class="impls"><span>desktop</span><span>slack</span><span>discord</span><span>webhook</span><span>composio</span><span>dashboard</span><span>openclaw</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-terminal)">
+      <div class="hd"><h4>Terminal</h4><span class="iface">types.ts:1204</span></div>
+      <p>Human attach UI. <code class="inl">openSession</code>, <code class="inl">openAll</code>, optional <code class="inl">isSessionOpen</code>.</p>
+      <div class="impls"><span>iterm2</span><span>web</span></div>
+    </div>
+    <div class="slot" style="--sc:var(--slot-lifecycle)">
+      <div class="hd"><h4>Lifecycle</h4><span class="iface">core (built-in)</span></div>
+      <p>The state machine + polling loop. <b>Not</b> pluggable — it is the engine itself, the single authority on terminal decisions.</p>
+      <div class="impls"><span>lifecycle-manager.ts</span></div>
+    </div>
+  </div>
+
+  <h3 id="registry">The registry &amp; the PluginModule contract</h3>
+  <p>The plugin registry (<span class="ref">packages/core/src/plugin-registry.ts</span>) discovers, resolves, and instantiates plugins. Built-ins are a hard-coded table keyed by <code class="inl">slot:name</code> (<span class="ref">plugin-registry.ts:39</span>); external plugins come from the config's <code class="inl">plugins[]</code> via npm <code class="inl">package</code> or local <code class="inl">path</code> (<span class="ref">plugin-registry.ts:533</span>). Every import is normalized to a <code class="inl">PluginModule</code> shape (<span class="ref">plugin-registry.ts:303</span>), accepting either a direct module or a <code class="inl">default</code> export.</p>
+
+  <p>Every plugin default-exports a <code class="inl">PluginModule&lt;T&gt;</code> (<span class="ref">types.ts:1747</span>): a <code class="inl">manifest</code>, a <code class="inl">create()</code> factory, and an optional <code class="inl">detect()</code> for binary availability. Config is validated once in <code class="inl">create()</code> and captured in a closure — never re-validated per call.</p>
+
+  <pre><code><span class="tok-k">import type</span> { PluginModule, Runtime } <span class="tok-k">from</span> <span class="tok-s">"@aoagents/ao-core"</span>;
+
+<span class="tok-k">export const</span> <span class="tok-f">manifest</span> = {
+  name: <span class="tok-s">"tmux"</span>,            <span class="tok-c">// must match the {name} package suffix</span>
+  slot: <span class="tok-s">"runtime"</span> <span class="tok-k">as const</span>, <span class="tok-c">// `as const` preserves the literal type</span>
+  description: <span class="tok-s">"tmux session runtime"</span>,
+  version: <span class="tok-s">"0.1.0"</span>,
+};
+
+<span class="tok-k">export function</span> <span class="tok-f">create</span>(config?: Record&lt;string, unknown&gt;): Runtime {
+  <span class="tok-c">// validate config here, capture in closure</span>
+  <span class="tok-k">return</span> { <span class="tok-c">/* …Runtime methods… */</span> };
+}
+
+<span class="tok-k">export function</span> <span class="tok-f">detect</span>(): boolean { <span class="tok-c">/* is the binary installed? */</span> }
+
+<span class="tok-k">export default</span> { manifest, create, detect } <span class="tok-k">satisfies</span> PluginModule&lt;Runtime&gt;;</code></pre>
+
+  <p>The <code class="inl">Session</code> object (<span class="ref">types.ts:280</span>) is the shared currency that flows through every slot. Key fields: <code class="inl">id</code>, <code class="inl">projectId</code>, <code class="inl">status</code> (legacy), <code class="inl">lifecycle</code> (canonical truth, <span class="ref">types.ts:297</span>), <code class="inl">activity</code>, <code class="inl">branch</code>, <code class="inl">pr</code>, <code class="inl">workspacePath</code>, <code class="inl">runtimeHandle</code>, and a free-form <code class="inl">metadata</code> map.</p>
+</section>
+
+<!-- ============ 4. LIFECYCLE ============ -->
+<section id="lifecycle">
+  <h2><span class="num">4</span>Session lifecycle</h2>
+  <p>A session's truth is stored as a <b>canonical lifecycle</b> with separate <code class="inl">state</code> and <code class="inl">reason</code> fields (plus parallel <code class="inl">pr</code> and <code class="inl">runtime</code> sub-states). The dashboard's familiar status labels are <em>derived</em> from this canonical truth, never stored as the source.</p>
+
+  <div class="why"><b>Why split canonical vs legacy status?</b> A flat status like <code class="inl">ci_failed</code> conflates three independent facts: is the agent process alive, what is the PR's review state, and what is the orchestrator <em>doing</em> about it. The canonical model keeps these orthogonal (<code class="inl">session.state</code> / <code class="inl">pr.state</code> / <code class="inl">runtime.state</code>), which is what makes the reconciliation invariant possible — the session manager can record a runtime fact without accidentally deciding the session is dead. <code class="inl">deriveLegacyStatus()</code> then flattens the orthogonal truth back into one label only for display and backward compatibility.</p>
+
+  <h3 id="canonical">Canonical states &amp; terminal reasons</h3>
+  <p>Defined as Zod enums in <span class="ref">packages/core/src/lifecycle-state.ts:50</span>. There are 8 session states and a rich reason vocabulary; the terminal set is just <code class="inl">{done, terminated}</code> (<span class="ref">lifecycle-state.ts:131</span>).</p>
+
+  <div class="grid-2">
+    <div>
+      <h4>Session states <span style="font-weight:400;text-transform:none;color:var(--fg-mute)">(lifecycle-state.ts:50)</span></h4>
+      <table>
+        <tr><th>State</th><th>Meaning</th></tr>
+        <tr><td class="mono">not_started</td><td>Spawned, agent not yet running</td></tr>
+        <tr><td class="mono">working</td><td>Agent actively processing</td></tr>
+        <tr><td class="mono">idle</td><td>Quiet, awaiting external event</td></tr>
+        <tr><td class="mono">needs_input</td><td>Blocked on a user decision</td></tr>
+        <tr><td class="mono">stuck</td><td>Idle past threshold / unrecoverable</td></tr>
+        <tr><td class="mono">detecting</td><td>Runtime unknown — probing</td></tr>
+        <tr><td class="mono" style="color:var(--ok)">done</td><td><b>terminal</b> — completed successfully</td></tr>
+        <tr><td class="mono" style="color:var(--err)">terminated</td><td><b>terminal</b> — killed / errored / cleaned</td></tr>
+      </table>
+    </div>
+    <div>
+      <h4>Terminal reasons <span style="font-weight:400;text-transform:none;color:var(--fg-mute)">(lifecycle-state.ts:60)</span></h4>
+      <table>
+        <tr><th>Reason</th><th>Maps to</th></tr>
+        <tr><td class="mono">research_complete</td><td><span style="color:var(--ok)">done</span></td></tr>
+        <tr><td class="mono">manually_killed</td><td>terminated → killed</td></tr>
+        <tr><td class="mono">runtime_lost</td><td>terminated → killed</td></tr>
+        <tr><td class="mono">agent_process_exited</td><td>terminated</td></tr>
+        <tr><td class="mono">probe_failure</td><td>terminated → errored</td></tr>
+        <tr><td class="mono">error_in_process</td><td>terminated → errored</td></tr>
+        <tr><td class="mono">auto_cleanup</td><td>terminated → cleanup</td></tr>
+        <tr><td class="mono">pr_merged</td><td>terminated → cleanup</td></tr>
+      </table>
+    </div>
+  </div>
+  <p style="font-size:13.5px;color:var(--fg-mute)">The lifecycle also tracks a parallel <b>PR sub-state</b> (<code class="inl">none/open/merged/closed</code> with reasons like <code class="inl">ci_failing</code>, <code class="inl">changes_requested</code>, <code class="inl">approved</code>, <code class="inl">merge_ready</code>) and a <b>runtime sub-state</b> (<code class="inl">unknown/alive/exited/missing/probe_failed</code>) — see <span class="ref">lifecycle-state.ts:87</span> and <span class="ref">:108</span>.</p>
+
+  <h3 id="legacy">Legacy-status derivation</h3>
+  <p><code class="inl">deriveLegacyStatus(lifecycle)</code> (<span class="ref">lifecycle-state.ts:432</span>) flattens the canonical triple into the single status the dashboard kanban understands. Terminal and operational states map directly; for an <code class="inl">idle</code>/<code class="inl">working</code> session <em>with</em> an open PR, the PR sub-state decides the label.</p>
+
+  <div class="diagram">
+    <div class="cap">Figure 4 — Legacy status flow (derived for display)</div>
+    <pre class="mermaid">
+flowchart LR
+  spawning --> working --> pr_open
+  pr_open --> ci_failed
+  pr_open --> review_pending
+  ci_failed --> changes_requested
+  review_pending --> approved
+  changes_requested --> approved
+  approved --> mergeable --> merged --> cleanup --> done
+  classDef s fill:#16223a,stroke:#6ea8ff,color:#cfe2ff;
+  classDef bad fill:#2a1320,stroke:#f06595,color:#ffc9de;
+  classDef good fill:#11281f,stroke:#4fd1a1,color:#c4f0df;
+  class spawning,working,pr_open,review_pending s;
+  class ci_failed,changes_requested bad;
+  class approved,mergeable,merged,cleanup,done good;
+    </pre>
+  </div>
+
+  <h3 id="statemachine">The canonical state machine</h3>
+  <div class="diagram">
+    <div class="cap">Figure 5 — Canonical session state machine (states · transitions · terminal reasons)</div>
+    <pre class="mermaid">
+stateDiagram-v2
+  [*] --> not_started: spawn_requested
+  not_started --> working: agent_acknowledged
+  working --> idle: task quiet
+  idle --> working: new activity
+  working --> needs_input: awaiting_user_input
+  idle --> needs_input: awaiting_user_input
+  needs_input --> working: input received
+  working --> detecting: runtime probe ambiguous
+  idle --> detecting: runtime_lost
+  detecting --> working: runtime alive
+  detecting --> stuck: probe_failure
+  detecting --> terminated: runtime_lost / agent_process_exited
+  working --> stuck: error_in_process
+  stuck --> working: recovered
+  idle --> done: research_complete
+  working --> done: research_complete
+  idle --> terminated: pr_merged / auto_cleanup
+  working --> terminated: manually_killed
+  stuck --> terminated: probe_failure / error_in_process
+  done --> [*]
+  terminated --> [*]
+    </pre>
+  </div>
+  <div class="note"><b>Invariant (#1735):</b> only the lifecycle manager's <code class="inl">resolveProbeDecision</code> pipeline (<span class="ref">lifecycle-manager.ts:1202</span>) may write a terminal state. The session manager records runtime facts and parks a session in <code class="inl">detecting</code> — it never writes <code class="inl">terminated</code> directly.</div>
+
+  <h3 id="reactions">Polling loop &amp; reactions</h3>
+  <p>The lifecycle manager (<span class="ref">packages/core/src/lifecycle-manager.ts</span>) runs a polling loop, default <b>30 s</b> (<span class="ref">lifecycle-manager.ts:3016</span>). Each tick, <code class="inl">pollAll()</code> (<span class="ref">:2866</span>) lists sessions, batch-enriches PR data over GraphQL, then runs <code class="inl">checkSession()</code> concurrently. <code class="inl">determineStatus()</code> (<span class="ref">:901</span>) probes runtime liveness (<code class="inl">runtime.isAlive</code>), agent activity (<code class="inl">agent.getActivityState</code>), and PR state (<code class="inl">scm.enrichSessionsPRBatch</code>).</p>
+
+  <p>When a transition fires, a <b>reaction</b> may execute (<code class="inl">executeReaction</code>, <span class="ref">:1400</span>). Reactions track per-session attempt counts and escalate to a human after a retry budget or time window.</p>
+
+  <table>
+    <tr><th>Transition / event</th><th>Reaction</th><th>Action</th></tr>
+    <tr><td class="mono">→ ci_failed</td><td class="mono">ci-failed</td><td>send-to-agent, enriched with failed job/step/log</td></tr>
+    <tr><td class="mono">→ changes_requested</td><td class="mono">changes-requested</td><td>send-to-agent with review comments</td></tr>
+    <tr><td class="mono">review.pending</td><td>backlog dispatch</td><td><code class="inl">maybeDispatchReviewBacklog()</code> — human/bot comments routed separately, throttled 2 min</td></tr>
+    <tr><td class="mono">→ merge.ready</td><td class="mono">approved-and-green</td><td>auto-merge or notify</td></tr>
+    <tr><td class="mono">PR branch behind</td><td class="mono">merge-conflicts</td><td>rebase message, one-shot per conflict</td></tr>
+    <tr><td class="mono">session.stuck</td><td class="mono">agent-stuck</td><td>send-to-agent or notify human</td></tr>
+    <tr><td class="mono">session.needs_input</td><td class="mono">agent-needs-input</td><td>notify human</td></tr>
+  </table>
+  <p style="font-size:13.5px;color:var(--fg-mute)"><code class="inl">ci-failed</code> is a <em>persistent</em> reaction key (<span class="ref">:116</span>) so its escalation budget accumulates across CI oscillation rather than resetting each cycle.</p>
+</section>
+
+<!-- ============ 5. SESSION MANAGER ============ -->
+<section id="sessionmgr">
+  <h2><span class="num">5</span>Session manager</h2>
+  <p>The session manager (<span class="ref">packages/core/src/session-manager.ts</span>, factory <code class="inl">createSessionManager</code> at <span class="ref">:377</span>) owns session CRUD and all disk persistence. It is the only component that mutates session metadata files.</p>
+
+  <table>
+    <tr><th>Method</th><th>Ref</th><th>What it does</th></tr>
+    <tr><td class="mono">spawn(config)</td><td><span class="ref">:1188</span></td><td>Validate issue → reserve ID atomically → create workspace → create runtime → launch agent. Uses a LIFO <code class="inl">CleanupStack</code> to roll back on any failure.</td></tr>
+    <tr><td class="mono">list(projectId?)</td><td><span class="ref">:2235</span></td><td>Load metadata from disk, repair legacy→canonical lifecycle on read, enrich each with live runtime state. Results cached ~35 s.</td></tr>
+    <tr><td class="mono">get(id)</td><td><span class="ref">:2386</span></td><td>Find + enrich a single session.</td></tr>
+    <tr><td class="mono">kill(id, opts?)</td><td><span class="ref">:2445</span></td><td>Idempotent (early-return if already terminal) → destroy runtime → tear down managed workspace → record events.</td></tr>
+    <tr><td class="mono">restore(id)</td><td>—</td><td>Re-attach to a live runtime and restore metadata; pairs with the agent's <code class="inl">getRestoreCommand</code>.</td></tr>
+  </table>
+
+  <h3>Stale-runtime reconciliation</h3>
+  <p>During <code class="inl">list()</code> enrichment, if a session's tmux/process runtime is found dead, the manager persists the <em>fact</em> to disk and parks the session in <code class="inl">detecting</code> with reason <code class="inl">runtime_lost</code> (<span class="ref">session-manager.ts:2303</span>) — crucially <b>before</b> emitting any event, so a mid-event crash can't lose the update. It does <em>not</em> decide the session is terminated; the lifecycle manager's probe pipeline makes that call on the next poll. This is the concrete enforcement of invariant #1735.</p>
+</section>
+
+<!-- ============ 6. STORAGE ============ -->
+<section id="storage">
+  <h2><span class="num">6</span>Storage model — flat files, no database</h2>
+  <div class="why"><b>Why no database?</b> AO is a single-operator local tool, not a multi-tenant service. Flat files under <code class="inl">~/.agent-orchestrator</code> mean zero setup, trivial inspection (<code class="inl">cat</code> a session's JSON), git-style hashing for collision-free multi-checkout, and crash safety via atomic writes + file locks. The cost — no queries, no transactions — simply doesn't bite at this scale.</p>
+
+  <p>Paths are computed in <span class="ref">packages/core/src/paths.ts</span> using a project-based v2 layout:</p>
+  <pre><code><span class="tok-n">~/.agent-orchestrator/</span>
+├─ config.yaml                              <span class="tok-c"># global config — all registered projects</span>
+├─ running.json                             <span class="tok-c"># current `ao start` PID, port, projects</span>
+├─ last-stop.json                           <span class="tok-c"># sessions killed by stop/Ctrl+C (for restore)</span>
+├─ portfolio/                               <span class="tok-c"># preferences.json, registered.json</span>
+└─ projects/<span class="tok-f">{projectId}</span>/
+   ├─ orchestrator.json                     <span class="tok-c"># getOrchestratorPath()  paths.ts:139</span>
+   ├─ sessions/<span class="tok-f">{sessionId}</span>.json          <span class="tok-c"># getSessionPath()       paths.ts:144</span>
+   ├─ worktrees/<span class="tok-f">{sessionId}</span>/             <span class="tok-c"># isolated git workspace paths.ts:124</span>
+   ├─ code-reviews/  feedback-reports/</code></pre>
+
+  <p>Session metadata (<span class="ref">packages/core/src/metadata.ts</span>) is JSON written via atomic read-modify-write under a <code class="inl">.lock</code> file (<code class="inl">mutateMetadata</code>, <span class="ref">metadata.ts:376</span>; 5 s lock timeout, corrupt files preserved as <code class="inl">.corrupt-{ts}</code>). The <code class="inl">lifecycle</code> key is the single source of truth: when present, the stored <code class="inl">status</code> is ignored and recomputed via <code class="inl">deriveLegacyStatus()</code> on read (<span class="ref">metadata.ts:226</span>).</p>
+
+  <p>Config (<span class="ref">packages/core/src/config.ts</span>) is YAML validated by a Zod schema (<code class="inl">OrchestratorConfigSchema</code>, <span class="ref">config.ts:357</span>). <code class="inl">findConfigFile()</code> (<span class="ref">:756</span>) resolves in priority order: <code class="inl">AO_CONFIG_PATH</code> env → search up the directory tree from cwd (git-style) → global <code class="inl">~/.agent-orchestrator/config.yaml</code> → legacy home locations.</p>
+</section>
+
+<!-- ============ 7. DATA FLOW ============ -->
+<section id="dataflow">
+  <h2><span class="num">7</span>End-to-end data flow: <code class="inl">ao start</code> → dashboard</h2>
+  <p><code class="inl">ao start</code> (<span class="ref">packages/cli/src/commands/start.ts</span>) spawns the dashboard as a managed daemon child (<span class="ref">start.ts:939</span>), which in turn launches the Next.js server plus a dedicated <b>direct-terminal WebSocket</b> server (<span class="ref">packages/web/server/start-all.ts:108</span>), listening on <code class="inl">DIRECT_TERMINAL_PORT</code> (default <b>14801</b>, <span class="ref">direct-terminal-ws.ts:103</span>).</p>
+
+  <p>The browser opens one multiplexed WebSocket (<span class="ref">packages/web/server/mux-websocket.ts</span>) carrying three logical channels:</p>
+  <ul>
+    <li><b>sessions</b> — <code class="inl">SessionBroadcaster</code> polls <code class="inl">/api/sessions/patches</code> every <b>3 s</b> (<span class="ref">mux-websocket.ts:138</span>) and broadcasts lightweight <code class="inl">SessionPatch[]</code>.</li>
+    <li><b>terminal</b> — <code class="inl">TerminalManager</code> attaches a node-pty to <code class="inl">tmux attach-session</code>, streaming live output with a 50 KB ring buffer for late subscribers (<span class="ref">:466</span>).</li>
+    <li><b>notifications</b> — <code class="inl">NotificationBroadcaster</code> tails the JSONL store every <b>1 s</b> (<span class="ref">:319</span>).</li>
+  </ul>
+
+  <div class="note"><b>Note on transport:</b> the dashboard's primary real-time path is this <b>mux WebSocket</b>; the React hook <code class="inl">useSessionEvents</code> (<span class="ref">packages/web/src/hooks/useSessionEvents.ts</span>) applies the broadcast patches and falls back to an HTTP refresh of <code class="inl">/api/sessions</code> when session membership changes or data goes stale (~15 s). Terminals render through xterm.js in <code class="inl">DirectTerminal.tsx</code> driven by <code class="inl">useXtermTerminal</code> + the global <code class="inl">MuxProvider</code> WebSocket client.</div>
+
+  <div class="diagram">
+    <div class="cap">Figure 6 — Sequence: from <code>ao start</code> to a live dashboard render</div>
+    <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant CLI as ao start (CLI)
+  participant DASH as Dashboard daemon
+  participant NEXT as Next.js :3000
+  participant WS as mux WS :14801
+  participant API as /api/sessions/patches
+  participant SM as Session Manager
+  participant LM as Lifecycle Manager
+  participant BR as Browser (React + xterm)
+
+  U->>CLI: ao start
+  CLI->>DASH: spawnManagedDaemonChild("dashboard")
+  DASH->>NEXT: start Next.js (PORT)
+  DASH->>WS: start direct-terminal WS (14801)
+  CLI->>LM: start poll loop (30s)
+  loop every 30s
+    LM->>SM: list() + enrich PRs
+    SM-->>LM: sessions (canonical lifecycle)
+    LM->>LM: determineStatus → reactions
+  end
+  U->>BR: open http://localhost:3000
+  BR->>NEXT: SSR initial page
+  BR->>WS: connect mux, subscribe(sessions,notifications)
+  loop every 3s
+    WS->>API: GET /api/sessions/patches
+    API->>SM: listCached(project)
+    SM-->>API: SessionPatch[]
+    API-->>WS: patches
+    WS-->>BR: {ch:sessions, snapshot}
+  end
+  BR->>WS: {ch:terminal, type:open, tmuxName}
+  WS->>WS: node-pty ⇄ tmux attach-session
+  WS-->>BR: {ch:terminal, type:data} (stream)
+  BR->>BR: xterm renders + kanban updates
+    </pre>
+  </div>
+</section>
+
+<!-- ============ 8. PROMPTS ============ -->
+<section id="prompts">
+  <h2><span class="num">8</span>Prompt assembly (3 layers)</h2>
+  <p><code class="inl">buildPrompt()</code> (<span class="ref">packages/core/src/prompt-builder.ts:191</span>) composes a worker agent's system prompt from three layers, returning <code class="inl">{ systemPrompt, taskPrompt? }</code>:</p>
+
+  <div class="diagram">
+    <div class="cap">Figure 7 — 3-layer prompt assembly</div>
+    <pre class="mermaid">
+flowchart TB
+  L1["Layer 1 — Base prompt<br/><small>BASE_AGENT_PROMPT (repo) or<br/>BASE_AGENT_PROMPT_NO_REPO · prompt-builder.ts:21</small>"]:::l
+  L2["Layer 2 — Config context<br/><small>project · repo · branch · issue<br/>buildConfigLayer() :111</small>"]:::l
+  L3["Layer 3 — User rules<br/><small>agentRules + agentRulesFile<br/>readUserRules() :162</small>"]:::l
+  L1 --> OUT["systemPrompt"]:::o
+  L2 --> OUT
+  L3 --> OUT
+  classDef l fill:#16223a,stroke:#6ea8ff,color:#cfe2ff;
+  classDef o fill:#11281f,stroke:#4fd1a1,color:#c4f0df;
+    </pre>
+  </div>
+
+  <ol>
+    <li><b>Base prompt</b> — system instructions (session lifecycle, <code class="inl">ao report</code> commands, git/PR workflow). Two variants: full, or <code class="inl">_NO_REPO</code> when the project has no <code class="inl">repo</code> configured (<span class="ref">prompt-builder.ts:60</span>).</li>
+    <li><b>Config context</b> — project name/repo/branch/tracker and the task (issue id + pre-fetched issue details), built by <code class="inl">buildConfigLayer()</code> (<span class="ref">:111</span>). An optional orchestrator back-channel block injects an <code class="inl">ao send {sessionId} "…"</code> command (<span class="ref">:205</span>).</li>
+    <li><b>User rules</b> — inline <code class="inl">agentRules</code> and/or an external <code class="inl">agentRulesFile</code> resolved relative to the project (<span class="ref">:162</span>).</li>
+  </ol>
+  <p>The <b>orchestrator</b> session gets a separate prompt rendered from a markdown template with conditional section blocks (<code class="inl">generateOrchestratorPrompt()</code>, <span class="ref">packages/core/src/orchestrator-prompt.ts:189</span>) — this is what <code class="inl">ao start</code> injects via <code class="inl">--append-system-prompt</code>.</p>
+</section>
+
+<!-- ============ 9. PLATFORM ============ -->
+<section id="platform">
+  <h2><span class="num">9</span>Cross-platform abstractions</h2>
+  <p>AO ships first-class on macOS, Linux, <b>and Windows</b>. All OS branching is centralized in <span class="ref">packages/core/src/platform.ts</span> (full reference in <span class="ref">docs/CROSS_PLATFORM.md</span>).</p>
+
+  <div class="note"><b>The Golden Rule:</b> never write <code class="inl">process.platform === "win32"</code> in new code. Use the helpers from <code class="inl">@aoagents/ao-core</code>. Inline checks bypass the centralized tests (which mock <code class="inl">process.platform</code>) and become silent regressions.</div>
+
+  <table>
+    <tr><th>Need</th><th>Helper</th><th>Ref</th></tr>
+    <tr><td>OS check</td><td class="mono">isWindows() / isMac() / isLinux()</td><td><span class="ref">platform.ts:15</span></td></tr>
+    <tr><td>Default runtime (tmux vs process)</td><td class="mono">getDefaultRuntime()</td><td><span class="ref">:27</span></td></tr>
+    <tr><td>Resolve shell (PowerShell vs /bin/sh)</td><td class="mono">getShell()</td><td><span class="ref">:130</span></td></tr>
+    <tr><td>Kill process + descendants</td><td class="mono">killProcessTree(pid, sig?)</td><td><span class="ref">:154</span></td></tr>
+    <tr><td>PID listening on a port</td><td class="mono">findPidByPort(port)</td><td><span class="ref">:189</span></td></tr>
+    <tr><td>HOME / SHELL / TMPDIR / PATH / USER</td><td class="mono">getEnvDefaults()</td><td><span class="ref">:227</span></td></tr>
+  </table>
+  <p style="font-size:13.5px;color:var(--fg-mute)">On Windows the default runtime is <code class="inl">process</code> (ConPTY, no tmux); <code class="inl">killProcessTree</code> always uses <code class="inl">taskkill /F</code> (WM_CLOSE fails for headless processes), while Unix kills the negative-PID process group first. <code class="inl">getShell()</code> prefers <code class="inl">pwsh</code> → <code class="inl">powershell.exe</code> → <code class="inl">cmd.exe</code> and honors the <code class="inl">AO_SHELL</code> escape hatch.</p>
+</section>
+
+<!-- ============ 10. MAP ============ -->
+<section id="map">
+  <h2><span class="num">10</span>Code map — where to look</h2>
+  <table>
+    <tr><th>File</th><th>Responsibility</th></tr>
+    <tr><td class="mono">core/src/types.ts</td><td>All 8 plugin interfaces + Session, PluginModule, manifest</td></tr>
+    <tr><td class="mono">core/src/plugin-registry.ts</td><td>Discovery, resolution, instantiation of plugins</td></tr>
+    <tr><td class="mono">core/src/session-manager.ts</td><td>Session CRUD, spawn, restore, stale-runtime reconciliation</td></tr>
+    <tr><td class="mono">core/src/lifecycle-manager.ts</td><td>Polling loop, state machine, reactions, probe pipeline</td></tr>
+    <tr><td class="mono">core/src/lifecycle-state.ts</td><td>Canonical schema + <code class="inl">deriveLegacyStatus()</code></td></tr>
+    <tr><td class="mono">core/src/config.ts</td><td>YAML config loading + Zod validation</td></tr>
+    <tr><td class="mono">core/src/paths.ts &amp; metadata.ts</td><td>On-disk layout + atomic metadata I/O</td></tr>
+    <tr><td class="mono">core/src/prompt-builder.ts</td><td>3-layer worker prompt assembly</td></tr>
+    <tr><td class="mono">core/src/platform.ts</td><td>Cross-platform helpers (the Golden Rule)</td></tr>
+    <tr><td class="mono">cli/src/commands/start.ts</td><td><code class="inl">ao start</code>/<code class="inl">ao stop</code>, daemon spawning, Ctrl+C shutdown</td></tr>
+    <tr><td class="mono">web/server/mux-websocket.ts</td><td>Sessions/terminal/notifications mux WebSocket server</td></tr>
+    <tr><td class="mono">web/src/hooks/useSessionEvents.ts</td><td>Dashboard session-state consumer</td></tr>
+    <tr><td class="mono">web/src/components/Dashboard.tsx</td><td>Kanban board, attention zones</td></tr>
+  </table>
+
+  <footer>
+    <p>Generated as a read-only architecture reference for the Agent Orchestrator codebase. Diagrams render via Mermaid.js (CDN). Line references reflect the <code class="inl">main</code> branch at authoring time — verify against the current tree before relying on an exact line.</p>
+    <p>🤖 Generated with <a href="https://claude.com/claude-code">Claude Code</a>.</p>
+  </footer>
+</section>
+
+</main>
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "loose",
+    theme: "base",
+    themeVariables: {
+      darkMode: true,
+      background: "#151b27",
+      primaryColor: "#16223a",
+      primaryBorderColor: "#2f3a4f",
+      primaryTextColor: "#e6ebf2",
+      lineColor: "#6b7689",
+      fontSize: "14px",
+      fontFamily: "-apple-system, BlinkMacSystemFont, Inter, Segoe UI, sans-serif",
+      // sequence/state extras
+      actorBkg: "#16223a",
+      actorBorder: "#6ea8ff",
+      actorTextColor: "#e6ebf2",
+      signalColor: "#aab4c5",
+      signalTextColor: "#e6ebf2",
+      labelBoxBkgColor: "#1b2330",
+      labelBoxBorderColor: "#2f3a4f",
+      noteBkgColor: "#2a2410",
+      noteTextColor: "#f6e6b0",
+      noteBorderColor: "#f5c451",
+    },
+  });
+</script>
+</body>
+</html>

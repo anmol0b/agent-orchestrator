@@ -22,7 +22,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history to ensure base/head SHAs are available for PR scans
+          # Avoid fetching every branch/tag on PRs; the scan step fetches the
+          # exact base/head SHAs it needs. Non-PR scans only inspect recent
+          # history, so a shallow checkout is enough there too.
+          fetch-depth: 10
 
       - name: Install Gitleaks
         run: |

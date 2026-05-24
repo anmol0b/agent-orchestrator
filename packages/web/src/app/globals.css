@@ -7607,7 +7607,7 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   align-items: center;
   gap: 4px;
   flex-wrap: nowrap;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 /* Project name + pills: inline on desktop, stacked column on mobile */

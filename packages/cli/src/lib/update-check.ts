@@ -281,6 +281,48 @@ export function isManualOnlyInstall(method: InstallMethod): boolean {
   return method === "homebrew";
 }
 
+// ---------------------------------------------------------------------------
+// Cutover (legacy → rewrite bridge, 0.9.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * True when the installed version is pre-rewrite (major.minor < 0.10).
+ *
+ * The cutover only applies to legacy installs. A user already on the rewrite
+ * (0.10+, or any 1.x) must never be pushed back through the migration path, so
+ * the cutover branch gates on this.
+ */
+export function isLegacyVersion(version: string): boolean {
+  const match = version.match(/^(\d+)\.(\d+)/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major === 0 && minor < 10;
+}
+
+/**
+ * Build the exact-pinned install command for the cutover target.
+ *
+ * Unlike `getUpdateCommand` (which emits `@latest`/`@nightly`), the cutover must
+ * install a precise version. Returns `null` for methods AO cannot safely
+ * auto-install — Homebrew owns its symlinks, and git/unknown have no
+ * package-manager path — so the caller prints manual instructions instead.
+ */
+export function getCutoverInstallCommand(method: InstallMethod, version: string): string | null {
+  switch (method) {
+    case "npm-global":
+      return `npm install -g @aoagents/ao@${version}`;
+    case "pnpm-global":
+      return `pnpm add -g @aoagents/ao@${version}`;
+    case "bun-global":
+      return `bun add -g @aoagents/ao@${version}`;
+    case "homebrew":
+    case "git":
+    case "unknown":
+      return null;
+  }
+}
+
 export function isOutdatedForChannel(
   currentVersion: string,
   latestVersion: string,
@@ -458,6 +500,33 @@ export async function fetchLatestVersion(
       return tags["latest"];
     }
     return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the version the cutover bridge should install, or `null` if there is
+ * no cutover target.
+ *
+ * `AO_CUTOVER_VERSION` wins (staged rollout / emergency override). Otherwise the
+ * rewrite is published under the npm `next` dist-tag; return that when present.
+ * Any network/parse failure is treated as "no cutover" so `ao update` falls back
+ * to its normal flow and never hard-fails on a registry hiccup — same defensive
+ * posture as `fetchLatestVersion`.
+ */
+export async function resolveCutoverTarget(): Promise<string | null> {
+  const override = process.env["AO_CUTOVER_VERSION"];
+  if (override) return override;
+  try {
+    const response = await fetch(REGISTRY_PACKAGE_URL, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { "dist-tags"?: Record<string, unknown> };
+    const next = data["dist-tags"]?.["next"];
+    return typeof next === "string" ? next : null;
   } catch {
     return null;
   }

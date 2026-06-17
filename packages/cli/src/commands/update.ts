@@ -5,6 +5,7 @@ import chalk from "chalk";
 import {
   getGlobalConfigPath,
   isCanonicalGlobalConfigPath,
+  isOrchestratorSession,
   isWindows,
   loadConfig,
   loadGlobalConfig,
@@ -16,9 +17,12 @@ import {
   checkForUpdate,
   detectInstallMethod,
   getCurrentVersion,
+  getCutoverInstallCommand,
   getUpdateCommand,
   invalidateCache,
+  isLegacyVersion,
   readCachedUpdateInfo,
+  resolveCutoverTarget,
   resolveUpdateChannel,
   type InstallMethod,
 } from "../lib/update-check.js";
@@ -107,6 +111,21 @@ export function registerUpdate(program: Command): void {
           process.exit(1);
         }
 
+        // Cutover branch: when the rewrite is published under the npm `next`
+        // dist-tag and this install is still legacy, `ao update` migrates the
+        // user's data and installs the rewrite instead of running the normal
+        // channel update. No cutover target (the common case) leaves every
+        // existing handler below untouched.
+        const cutoverTarget = await resolveCutoverTarget();
+        if (
+          cutoverTarget &&
+          isLegacyVersion(getCurrentVersion()) &&
+          cutoverTarget !== getCurrentVersion()
+        ) {
+          await handleCutover(method, cutoverTarget);
+          return;
+        }
+
         switch (method) {
           case "git":
             await handleGitUpdate(opts);
@@ -133,7 +152,13 @@ export function registerUpdate(program: Command): void {
 
 async function handleCheck(): Promise<void> {
   const info = await checkForUpdate({ force: true });
-  console.log(JSON.stringify(info, null, 2));
+  const cutoverTarget = await resolveCutoverTarget();
+  const currentVersion = getCurrentVersion();
+  const cutoverAvailable =
+    cutoverTarget !== null &&
+    isLegacyVersion(currentVersion) &&
+    cutoverTarget !== currentVersion;
+  console.log(JSON.stringify({ ...info, cutoverAvailable, cutoverTarget }, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +261,17 @@ async function pauseAoForUpdate(plan: UpdateLifecyclePlan): Promise<boolean> {
     console.log(chalk.dim("\nAO is running; it will be restarted after the update."));
   }
 
+  await stopAoAndVerifyDown(plan);
+  return plan.runningBeforeUpdate;
+}
+
+/**
+ * Run `ao stop --yes` and confirm AO is actually down afterwards. Shared by the
+ * normal-update pause and the cutover stop. Aborts the process (non-zero) if the
+ * stop command fails, or if AO still appears active after it — installing on top
+ * of a live daemon would clobber session state mid-flight.
+ */
+async function stopAoAndVerifyDown(plan: UpdateLifecyclePlan): Promise<void> {
   const stopExit = await runAoLifecycleCommand(["stop", "--yes"], {
     configPath: plan.configPath,
   });
@@ -281,8 +317,6 @@ async function pauseAoForUpdate(plan: UpdateLifecyclePlan): Promise<boolean> {
     console.error(chalk.dim("Run `ao stop` and retry `ao update` after AO is fully stopped."));
     process.exit(1);
   }
-
-  return plan.runningBeforeUpdate;
 }
 
 async function restartAoAfterUpdate(
@@ -332,6 +366,222 @@ function runAoLifecycleCommand(
       resolveExit(signal ? 1 : (code ?? 1));
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Cutover (legacy → rewrite bridge, 0.9.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * The migrate command (issue #2129) is built separately; `ao update` only
+ * orchestrates it via this contract. Exit `0` means success or an idempotent
+ * all-already-present re-run; non-zero means a refusal or hard error.
+ */
+interface MigrationSummary {
+  dbCreated: boolean;
+  schemaVersion: number;
+  projects: { created: number; skipped: number; failed: number };
+  orchestrators: {
+    created: number;
+    skipped: number;
+    failed: number;
+    relocatedTranscripts: number;
+  };
+}
+
+interface MigrationResult {
+  exitCode: number;
+  summary: MigrationSummary | null;
+  output: string;
+}
+
+/**
+ * Invoke `ao migrate --json` and capture its exit code + JSON summary.
+ *
+ * Migration runs BEFORE the install because the migrate command is legacy-side
+ * and disappears once the rewrite overwrites the binary. We spawn the sibling
+ * `ao migrate` command (same package on PATH) and parse its `--json` summary
+ * from stdout — the contract is documented on {@link MigrationSummary}.
+ */
+async function runMigration(): Promise<MigrationResult> {
+  const result = await runCommandCapture("ao", ["migrate", "--json"], { echo: true });
+  return {
+    exitCode: result.exitCode,
+    summary: parseMigrationSummary(result.output),
+    output: result.output,
+  };
+}
+
+function parseMigrationSummary(output: string): MigrationSummary | null {
+  const match = output.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]) as MigrationSummary;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The orchestrator's own state never blocks a cutover — it gets migrated. Only
+ * active worker sessions block. Reuses the core identity check (metadata role)
+ * and falls back to the id suffix the spec mandates.
+ */
+function isCutoverOrchestrator(session: Session): boolean {
+  return isOrchestratorSession(session) || session.id.endsWith("-orchestrator");
+}
+
+/** Stop the daemon for a cutover. Like `pauseAoForUpdate`, but never restarts. */
+async function stopAoForCutover(plan: UpdateLifecyclePlan): Promise<void> {
+  const shouldStop = plan.runningBeforeUpdate || plan.activeSessions.length > 0;
+  if (!shouldStop) return;
+  console.log(chalk.dim("\nStopping AO before the cutover..."));
+  await stopAoAndVerifyDown(plan);
+}
+
+/**
+ * Perform the legacy → rewrite cutover: guard on busy workers, confirm, stop AO,
+ * migrate, then install the rewrite at `target`. The step order is mandatory —
+ * migration must complete before the install replaces the legacy binary, and
+ * the legacy daemon must NOT be restarted afterward.
+ */
+async function handleCutover(method: InstallMethod, target: string): Promise<void> {
+  const previousVersion = getCurrentVersion();
+
+  // 1. Worker-busy guard. Active workers block the cutover; we refuse and stop
+  //    nothing. The orchestrator's own state never blocks — it gets migrated.
+  const plan = await getUpdateLifecyclePlan();
+  const activeWorkers = plan.activeSessions.filter((s) => !isCutoverOrchestrator(s));
+  if (activeWorkers.length > 0) {
+    const noun = activeWorkers.length === 1 ? "worker" : "workers";
+    console.error(
+      chalk.red(
+        `\nCannot cut over to the rewrite while ${activeWorkers.length} active ${noun} ${
+          activeWorkers.length === 1 ? "is" : "are"
+        } running.`,
+      ),
+    );
+    for (const s of activeWorkers.slice(0, 5)) {
+      console.error(chalk.dim(`    • ${s.id}  (${s.status})`));
+    }
+    if (activeWorkers.length > 5) {
+      console.error(chalk.dim(`    … and ${activeWorkers.length - 5} more`));
+    }
+    console.error(
+      chalk.dim("Wait for these sessions to finish (or stop them) and retry `ao update`."),
+    );
+    process.exit(1);
+  }
+
+  // 2. Confirmation / non-interactive gate. The cutover is irreversible and must
+  //    never be auto-confirmed by a background dashboard spawn.
+  if (isApiInvoked()) {
+    console.error(
+      chalk.red(
+        "\nThis is a major irreversible update; run `ao update` in a terminal.",
+      ),
+    );
+    process.exit(1);
+  } else if (isTTY()) {
+    console.log(chalk.yellow(`\nA new version of AO (${target}) is ready.`));
+    console.log(
+      chalk.dim(
+        "This is a major, irreversible update: your data will be migrated to the new format and the legacy CLI will be replaced.",
+      ),
+    );
+    const confirmed = await promptConfirm(`Migrate your data and install ${target}?`, false);
+    if (!confirmed) {
+      console.log(chalk.dim("Cutover cancelled. You are still on the current version."));
+      return;
+    }
+  } else {
+    // Piped, non-TTY, not api-invoked: print the manual command and return
+    // without installing, mirroring the existing non-TTY behavior.
+    const cmd = getCutoverInstallCommand(method, target);
+    console.log(`A new version of AO (${target}) is ready. Run \`ao update\` in a terminal,`);
+    if (cmd) console.log(`or run: ${chalk.cyan(cmd)} (after \`ao migrate\`).`);
+    return;
+  }
+
+  // 3. Stop the daemon (no restore).
+  await stopAoForCutover(plan);
+
+  // 4. Run migration. Must succeed before we replace the legacy binary.
+  console.log(chalk.dim("\nMigrating your data to the new format..."));
+  const migration = await runMigration();
+  if (migration.exitCode !== 0) {
+    console.error(
+      chalk.red(`\nMigration failed (exit ${migration.exitCode}). AO was NOT updated.`),
+    );
+    console.error(
+      chalk.yellow(
+        "You are still on the legacy version. Resolve the migration error above and retry `ao update`.",
+      ),
+    );
+    process.exit(migration.exitCode);
+  }
+
+  // 5. Install the rewrite at the target.
+  const cmd = getCutoverInstallCommand(method, target);
+  if (cmd === null) {
+    printCutoverManualInstall(method, target);
+    return;
+  }
+  const installResult = await runNpmInstall(cmd);
+  if (installResult.exitCode !== 0) {
+    printInstallFailure({
+      method,
+      command: cmd,
+      channel: resolveUpdateChannel(),
+      currentVersion: previousVersion,
+      exitCode: installResult.exitCode,
+      output: installResult.output,
+    });
+    process.exit(1);
+  }
+
+  // 6. Verify.
+  const verification = await verifyInstalledVersion(target, previousVersion);
+  if (!verification.ok) {
+    console.error(chalk.red(`\nAO was not verified after install.`));
+    console.error(chalk.yellow(verification.message));
+    console.error(chalk.dim(`Expected: ${target}`));
+    console.error(chalk.dim(`Current before update: ${previousVersion}`));
+    process.exit(1);
+  }
+
+  // 7. Finish. Do NOT restart — the legacy daemon must not come back up.
+  invalidateCache();
+  console.log(
+    chalk.green(`\nUpdated to ${verification.actualVersion}. Run \`ao start\` to launch the new version.`),
+  );
+}
+
+/**
+ * Print method-specific manual-install instructions when the cutover cannot
+ * auto-install (homebrew/git/unknown). Migration has already run, so this is a
+ * clean stopping point — the user finishes the install by hand.
+ */
+function printCutoverManualInstall(method: InstallMethod, target: string): void {
+  console.log(
+    chalk.green("\nYour data has been migrated. Finish the update by installing the new version:"),
+  );
+  if (method === "homebrew") {
+    console.log(`  ${chalk.cyan("brew upgrade ao")}`);
+    console.log(
+      chalk.dim("  (AO does not auto-install for brew installs — it would clobber brew's symlinks.)"),
+    );
+  } else if (method === "git") {
+    console.log(
+      chalk.dim(
+        "  This is a git/source install. Pull the rewrite branch and rebuild, or install the package directly:",
+      ),
+    );
+    console.log(`  ${chalk.cyan(`npm install -g @aoagents/ao@${target}`)}`);
+  } else {
+    console.log(`  ${chalk.cyan(`npm install -g @aoagents/ao@${target}`)}`);
+  }
+  console.log(chalk.dim("\nThen run `ao start` to launch the new version."));
 }
 
 // ---------------------------------------------------------------------------

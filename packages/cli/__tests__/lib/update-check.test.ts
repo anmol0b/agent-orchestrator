@@ -93,6 +93,9 @@ import {
   resolveUpdateChannel,
   resolveInstallMethodOverride,
   isManualOnlyInstall,
+  isLegacyVersion,
+  getCutoverInstallCommand,
+  resolveCutoverTarget,
 } from "../../src/lib/update-check.js";
 
 // ---------------------------------------------------------------------------
@@ -1312,6 +1315,91 @@ describe("update-check", () => {
       expect(isManualOnlyInstall("npm-global")).toBe(false);
       expect(isManualOnlyInstall("bun-global")).toBe(false);
       expect(isManualOnlyInstall("git")).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Cutover (legacy → rewrite bridge, 0.9.6)
+  // -----------------------------------------------------------------------
+
+  describe("isLegacyVersion", () => {
+    it("treats 0.x with minor < 10 as legacy", () => {
+      expect(isLegacyVersion("0.9.6")).toBe(true);
+      expect(isLegacyVersion("0.2.2")).toBe(true);
+      expect(isLegacyVersion("0.9.6-nightly-abc")).toBe(true);
+    });
+
+    it("treats 0.10+ and 1.x as post-rewrite (not legacy)", () => {
+      expect(isLegacyVersion("0.10.0")).toBe(false);
+      expect(isLegacyVersion("0.11.3")).toBe(false);
+      expect(isLegacyVersion("1.0.0")).toBe(false);
+    });
+
+    it("returns false for unparseable versions", () => {
+      expect(isLegacyVersion("")).toBe(false);
+      expect(isLegacyVersion("not-a-version")).toBe(false);
+    });
+  });
+
+  describe("getCutoverInstallCommand", () => {
+    it("builds exact-pin install commands for auto-installable methods", () => {
+      expect(getCutoverInstallCommand("npm-global", "1.0.0")).toBe(
+        "npm install -g @aoagents/ao@1.0.0",
+      );
+      expect(getCutoverInstallCommand("pnpm-global", "1.0.0")).toBe(
+        "pnpm add -g @aoagents/ao@1.0.0",
+      );
+      expect(getCutoverInstallCommand("bun-global", "1.0.0")).toBe("bun add -g @aoagents/ao@1.0.0");
+    });
+
+    it("returns null for methods that cannot auto-install", () => {
+      expect(getCutoverInstallCommand("homebrew", "1.0.0")).toBeNull();
+      expect(getCutoverInstallCommand("git", "1.0.0")).toBeNull();
+      expect(getCutoverInstallCommand("unknown", "1.0.0")).toBeNull();
+    });
+  });
+
+  describe("resolveCutoverTarget", () => {
+    let origEnv: string | undefined;
+    beforeEach(() => {
+      origEnv = process.env["AO_CUTOVER_VERSION"];
+      delete process.env["AO_CUTOVER_VERSION"];
+    });
+    afterEach(() => {
+      if (origEnv === undefined) delete process.env["AO_CUTOVER_VERSION"];
+      else process.env["AO_CUTOVER_VERSION"] = origEnv;
+    });
+
+    it("returns the AO_CUTOVER_VERSION override without hitting the registry", async () => {
+      process.env["AO_CUTOVER_VERSION"] = "1.2.3";
+      expect(await resolveCutoverTarget()).toBe("1.2.3");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("returns dist-tags.next from the registry", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ "dist-tags": { latest: "0.9.6", next: "1.0.0" } }),
+      });
+      expect(await resolveCutoverTarget()).toBe("1.0.0");
+    });
+
+    it("returns null when the next tag is absent", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ "dist-tags": { latest: "0.9.6" } }),
+      });
+      expect(await resolveCutoverTarget()).toBeNull();
+    });
+
+    it("returns null on network error (no cutover, falls back to normal update)", async () => {
+      mockFetch.mockRejectedValue(new Error("fetch failed"));
+      expect(await resolveCutoverTarget()).toBeNull();
+    });
+
+    it("returns null on non-ok response", async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 503 });
+      expect(await resolveCutoverTarget()).toBeNull();
     });
   });
 

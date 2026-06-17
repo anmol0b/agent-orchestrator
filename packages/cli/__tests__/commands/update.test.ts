@@ -37,11 +37,16 @@ const {
   }),
 }));
 
-const { mockResolveUpdateChannel, mockReadCachedUpdateInfo } = vi.hoisted(() => ({
-  mockResolveUpdateChannel: vi.fn(() => "manual" as "stable" | "nightly" | "manual"),
-  mockReadCachedUpdateInfo: vi.fn<() => { channel?: string } | null>(() => null),
-}));
+const { mockResolveUpdateChannel, mockReadCachedUpdateInfo, mockResolveCutoverTarget } = vi.hoisted(
+  () => ({
+    mockResolveUpdateChannel: vi.fn(() => "manual" as "stable" | "nightly" | "manual"),
+    mockReadCachedUpdateInfo: vi.fn<() => { channel?: string } | null>(() => null),
+    mockResolveCutoverTarget: vi.fn<() => Promise<string | null>>(async () => null),
+  }),
+);
 
+// isLegacyVersion and getCutoverInstallCommand are pure — mirror the real impl
+// so cutover gating and install-command selection behave realistically.
 vi.mock("../../src/lib/update-check.js", () => ({
   detectInstallMethod: () => mockDetectInstallMethod(),
   checkForUpdate: (...args: unknown[]) => mockCheckForUpdate(...args),
@@ -51,6 +56,17 @@ vi.mock("../../src/lib/update-check.js", () => ({
   resolveUpdateChannel: () => mockResolveUpdateChannel(),
   readCachedUpdateInfo: (...args: unknown[]) => mockReadCachedUpdateInfo(...args),
   isManualOnlyInstall: (m: string) => m === "homebrew",
+  resolveCutoverTarget: () => mockResolveCutoverTarget(),
+  isLegacyVersion: (v: string) => {
+    const m = v.match(/^(\d+)\.(\d+)/);
+    return m ? Number(m[1]) === 0 && Number(m[2]) < 10 : false;
+  },
+  getCutoverInstallCommand: (method: string, version: string) => {
+    if (method === "npm-global") return `npm install -g @aoagents/ao@${version}`;
+    if (method === "pnpm-global") return `pnpm add -g @aoagents/ao@${version}`;
+    if (method === "bun-global") return `bun add -g @aoagents/ao@${version}`;
+    return null;
+  },
 }));
 
 // Stub the update lifecycle planner's dependencies so handlers don't try to
@@ -191,6 +207,10 @@ describe("update command", () => {
     mockResolveUpdateChannel.mockReturnValue("manual");
     mockReadCachedUpdateInfo.mockReset();
     mockReadCachedUpdateInfo.mockReturnValue(null);
+    // Default: no cutover target → every existing test exercises the normal
+    // update flow exactly as before.
+    mockResolveCutoverTarget.mockReset();
+    mockResolveCutoverTarget.mockResolvedValue(null);
     mockIsWindows.mockReset();
     mockIsWindows.mockReturnValue(false);
     // Default: project-local loadConfig succeeds with no projects, and no
@@ -1116,6 +1136,292 @@ describe("update command", () => {
       await program.parseAsync(["node", "test", "update"]);
       const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
       expect(opts.shell).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Cutover (legacy → rewrite bridge, 0.9.6)
+  // -----------------------------------------------------------------------
+
+  describe("cutover", () => {
+    const MIGRATE_JSON = JSON.stringify({
+      dbCreated: true,
+      schemaVersion: 1,
+      projects: { created: 1, skipped: 0, failed: 0 },
+      orchestrators: { created: 1, skipped: 0, failed: 0, relocatedTranscripts: 0 },
+    });
+
+    // Spawn router for a clean cutover: stop clears sessions, migrate emits the
+    // JSON summary (exit 0), `ao --version` reports the target, install succeeds.
+    function happyCutoverSpawn(target = "1.0.0") {
+      return (cmd: string, args: string[]) => {
+        if (cmd === "ao" && args[0] === "stop") {
+          mockSessions.value = [];
+          return createMockChild(0, undefined, { stdout: "" });
+        }
+        if (cmd === "ao" && args[0] === "migrate") {
+          return createMockChild(0, undefined, { stdout: MIGRATE_JSON });
+        }
+        if (cmd === "ao" && args[0] === "--version") {
+          return createMockChild(0, undefined, { stdout: `${target}\n` });
+        }
+        return createMockChild(0, undefined, { stdout: "" });
+      };
+    }
+
+    beforeEach(() => {
+      mockDetectInstallMethod.mockReturnValue("npm-global");
+      mockGetCurrentVersion.mockReturnValue("0.9.6"); // legacy
+      mockResolveCutoverTarget.mockResolvedValue("1.0.0");
+      mockResolveUpdateChannel.mockReturnValue("stable");
+      // Interactive terminal, user confirms the irreversible cutover.
+      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+      Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+      mockPromptConfirm.mockResolvedValue(true);
+      // No daemon / no sessions by default → no stop step.
+      mockGetRunning.mockResolvedValue(null);
+      mockExistsSync.mockReturnValue(false);
+      mockSessions.value = [];
+    });
+
+    // ---- Gating -------------------------------------------------------------
+
+    it("does NOT enter cutover when there is no target (normal flow runs)", async () => {
+      mockResolveCutoverTarget.mockResolvedValue(null);
+      mockCheckForUpdate.mockResolvedValue(makeNpmUpdateInfo({ installMethod: "npm-global" }));
+      mockSpawn.mockReturnValue(createMockChild(0, undefined, { stdout: "0.3.0\n" }));
+
+      await program.parseAsync(["node", "test", "update"]);
+
+      // Normal npm flow installs @latest; migrate is never spawned.
+      const migrateCalls = mockSpawn.mock.calls.filter(
+        ([cmd, args]) => cmd === "ao" && Array.isArray(args) && args[0] === "migrate",
+      );
+      expect(migrateCalls).toHaveLength(0);
+    });
+
+    it("does NOT enter cutover when the install is already post-rewrite", async () => {
+      mockGetCurrentVersion.mockReturnValue("0.10.0"); // not legacy
+      mockCheckForUpdate.mockResolvedValue(makeNpmUpdateInfo({ installMethod: "npm-global" }));
+      mockSpawn.mockReturnValue(createMockChild(0, undefined, { stdout: "0.3.0\n" }));
+
+      await program.parseAsync(["node", "test", "update"]);
+
+      const migrateCalls = mockSpawn.mock.calls.filter(
+        ([cmd, args]) => cmd === "ao" && Array.isArray(args) && args[0] === "migrate",
+      );
+      expect(migrateCalls).toHaveLength(0);
+    });
+
+    it("does NOT enter cutover when the target equals the current version", async () => {
+      mockGetCurrentVersion.mockReturnValue("0.9.6");
+      mockResolveCutoverTarget.mockResolvedValue("0.9.6");
+      mockCheckForUpdate.mockResolvedValue(makeNpmUpdateInfo({ installMethod: "npm-global" }));
+      mockSpawn.mockReturnValue(createMockChild(0, undefined, { stdout: "0.3.0\n" }));
+
+      await program.parseAsync(["node", "test", "update"]);
+
+      const migrateCalls = mockSpawn.mock.calls.filter(
+        ([cmd, args]) => cmd === "ao" && Array.isArray(args) && args[0] === "migrate",
+      );
+      expect(migrateCalls).toHaveLength(0);
+    });
+
+    // ---- Worker-busy guard --------------------------------------------------
+
+    it("refuses (non-zero) when an active worker is running, stopping nothing", async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockLoadGlobalConfig.mockReturnValue({ projects: { "my-app": { path: "/tmp/foo" } } });
+      mockLoadConfig.mockReturnValue({
+        projects: { "my-app": { path: "/tmp/foo" } },
+        configPath: "/tmp/test-global-config.yaml",
+      });
+      mockSessions.value = [
+        { id: "feat-1", status: "working", projectId: "my-app", metadata: {} },
+      ];
+
+      await expect(program.parseAsync(["node", "test", "update"])).rejects.toThrow(
+        "process.exit(1)",
+      );
+
+      // Nothing was spawned — no stop, no migrate, no install.
+      expect(mockSpawn).not.toHaveBeenCalled();
+      const stderr = vi
+        .mocked(console.error)
+        .mock.calls.map((c) => String(c[0]))
+        .join("\n");
+      expect(stderr).toMatch(/active worker/i);
+    });
+
+    it("proceeds when only the orchestrator is active", async () => {
+      // Daemon running with just the orchestrator session active.
+      mockGetRunning
+        .mockResolvedValueOnce({
+          pid: 12345,
+          configPath: "/tmp/test-global-config.yaml",
+          port: 3000,
+          startedAt: new Date().toISOString(),
+          projects: ["my-app"],
+        })
+        .mockResolvedValue(null);
+      mockLoadConfig.mockReturnValue({
+        projects: { "my-app": { path: "/tmp/foo" } },
+        configPath: "/tmp/test-global-config.yaml",
+      });
+      mockSessions.value = [
+        {
+          id: "my-app-orchestrator",
+          status: "working",
+          projectId: "my-app",
+          metadata: { role: "orchestrator" },
+        },
+      ];
+      mockSpawn.mockImplementation(happyCutoverSpawn());
+
+      await program.parseAsync(["node", "test", "update"]);
+
+      // Guard passed → migration ran and the rewrite was installed.
+      const migrateCalls = mockSpawn.mock.calls.filter(
+        ([cmd, args]) => cmd === "ao" && args[0] === "migrate",
+      );
+      expect(migrateCalls).toHaveLength(1);
+      expect(mockInvalidateCache).toHaveBeenCalled();
+    });
+
+    // ---- Non-interactive gates ---------------------------------------------
+
+    it("refuses an api-invoked cutover and never installs", async () => {
+      const orig = process.env["AO_NON_INTERACTIVE_INSTALL"];
+      process.env["AO_NON_INTERACTIVE_INSTALL"] = "1";
+      try {
+        await expect(program.parseAsync(["node", "test", "update"])).rejects.toThrow(
+          "process.exit(1)",
+        );
+        expect(mockSpawn).not.toHaveBeenCalled();
+        const stderr = vi
+          .mocked(console.error)
+          .mock.calls.map((c) => String(c[0]))
+          .join("\n");
+        expect(stderr).toMatch(/run `ao update` in a terminal/i);
+      } finally {
+        if (orig === undefined) delete process.env["AO_NON_INTERACTIVE_INSTALL"];
+        else process.env["AO_NON_INTERACTIVE_INSTALL"] = orig;
+      }
+    });
+
+    it("prints the manual command and does not install on piped non-TTY", async () => {
+      Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+      Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+
+      const logSpy = vi.mocked(console.log);
+      await program.parseAsync(["node", "test", "update"]);
+
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(mockPromptConfirm).not.toHaveBeenCalled();
+      const all = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(all).toMatch(/ao update/);
+    });
+
+    it("aborts and does not install when the user declines the confirm", async () => {
+      mockPromptConfirm.mockResolvedValue(false);
+      await program.parseAsync(["node", "test", "update"]);
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(mockInvalidateCache).not.toHaveBeenCalled();
+    });
+
+    // ---- Migration abort ----------------------------------------------------
+
+    it("aborts (non-zero) and does NOT install when migration fails", async () => {
+      mockSpawn.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === "ao" && args[0] === "migrate") {
+          return createMockChild(1, undefined, { stderr: "migration refused\n" });
+        }
+        return createMockChild(0, undefined, { stdout: "" });
+      });
+
+      await expect(program.parseAsync(["node", "test", "update"])).rejects.toThrow(
+        "process.exit(1)",
+      );
+
+      // Migrate spawned, but install (npm) was NOT.
+      const installCalls = mockSpawn.mock.calls.filter(([cmd]) => cmd === "npm");
+      expect(installCalls).toHaveLength(0);
+      expect(mockInvalidateCache).not.toHaveBeenCalled();
+      const stderr = vi
+        .mocked(console.error)
+        .mock.calls.map((c) => String(c[0]))
+        .join("\n");
+      expect(stderr).toMatch(/still on the legacy version/i);
+    });
+
+    // ---- Install per method -------------------------------------------------
+
+    it.each([
+      ["npm-global" as const, "npm", ["install", "-g", "@aoagents/ao@1.0.0"]],
+      ["pnpm-global" as const, "pnpm", ["add", "-g", "@aoagents/ao@1.0.0"]],
+      ["bun-global" as const, "bun", ["add", "-g", "@aoagents/ao@1.0.0"]],
+    ])("runs the exact-pin install for %s", async (method, bin, args) => {
+      mockDetectInstallMethod.mockReturnValue(method);
+      mockSpawn.mockImplementation(happyCutoverSpawn());
+
+      await program.parseAsync(["node", "test", "update"]);
+
+      const installCall = mockSpawn.mock.calls.find(([cmd]) => cmd === bin);
+      expect(installCall).toBeDefined();
+      expect(installCall?.[1]).toEqual(args);
+      expect(mockInvalidateCache).toHaveBeenCalled();
+    });
+
+    it.each(["homebrew" as const, "git" as const, "unknown" as const])(
+      "prints instructions and does not auto-install for %s",
+      async (method) => {
+        mockDetectInstallMethod.mockReturnValue(method);
+        mockSpawn.mockImplementation(happyCutoverSpawn());
+
+        const logSpy = vi.mocked(console.log);
+        await program.parseAsync(["node", "test", "update"]);
+
+        // Migration ran, but no package-manager install was spawned.
+        const installCalls = mockSpawn.mock.calls.filter(([cmd]) =>
+          ["npm", "pnpm", "bun"].includes(cmd as string),
+        );
+        expect(installCalls).toHaveLength(0);
+        const all = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(all).toMatch(/migrated/i);
+      },
+    );
+
+    // ---- Success ------------------------------------------------------------
+
+    it("invalidates cache, never restarts AO, and prints success on the happy path", async () => {
+      mockSpawn.mockImplementation(happyCutoverSpawn());
+      const logSpy = vi.mocked(console.log);
+
+      await program.parseAsync(["node", "test", "update"]);
+
+      expect(mockInvalidateCache).toHaveBeenCalledTimes(1);
+      // The legacy daemon must NOT be restarted.
+      const startCalls = mockSpawn.mock.calls.filter(
+        ([cmd, args]) => cmd === "ao" && Array.isArray(args) && args[0] === "start",
+      );
+      expect(startCalls).toHaveLength(0);
+      const all = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(all).toMatch(/Updated to 1\.0\.0/);
+      expect(all).toMatch(/ao start/);
+    });
+
+    // ---- --check reports cutover state -------------------------------------
+
+    it("--check reports cutoverAvailable and cutoverTarget", async () => {
+      mockResolveCutoverTarget.mockResolvedValue("1.0.0");
+      mockGetCurrentVersion.mockReturnValue("0.9.6");
+      const logSpy = vi.mocked(console.log);
+
+      await program.parseAsync(["node", "test", "update", "--check"]);
+
+      const parsed = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+      expect(parsed.cutoverAvailable).toBe(true);
+      expect(parsed.cutoverTarget).toBe("1.0.0");
     });
   });
 });

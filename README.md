@@ -1,4 +1,4 @@
-# ReverbCode
+# Agent Orchestrator
 
 The orchestration layer for parallel AI coding agents. ReverbCode is a
 Go-backed daemon that supervises many coding-agent sessions at once, each in

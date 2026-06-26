@@ -18,9 +18,6 @@ type ImportService interface {
 	Run(ctx context.Context) (legacyimport.Report, error)
 }
 
-// ImportStatusResult is an alias for the service status, exported for tests.
-type ImportStatusResult = importsvc.Status
-
 // ImportController owns the /import routes.
 type ImportController struct {
 	Svc ImportService

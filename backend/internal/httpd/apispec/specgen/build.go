@@ -188,7 +188,7 @@ var schemaNames = map[string]string{
 	"ControllersSubmitReviewInput":   "SubmitReviewInput",
 	// domain review entities
 	"DomainReviewRun": "ReviewRun",
-	// httpd/controllers — import wire envelopes
+	// httpd/controllers: import wire envelopes
 	"ControllersImportStatusResponse": "ImportStatusResponse",
 	"ControllersImportRunResponse":    "ImportRunResponse",
 	// legacyimport report

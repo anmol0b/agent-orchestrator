@@ -41,8 +41,3 @@ func preferencesPath(root string) string {
 func registeredPath(root string) string {
 	return filepath.Join(root, "portfolio", "registered.json")
 }
-
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}

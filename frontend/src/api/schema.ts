@@ -797,7 +797,9 @@ export interface components {
         };
         SessionPRUnresolvedReviewer: {
             count: number;
+            isBot?: boolean;
             links: components["schemas"]["SessionPRReviewCommentLink"][];
+            reviewUrl?: string;
             reviewerId: string;
         };
         SessionPreviewResponse: {

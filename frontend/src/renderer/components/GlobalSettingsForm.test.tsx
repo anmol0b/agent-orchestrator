@@ -1,16 +1,33 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSettingsForm } from "./GlobalSettingsForm";
 
-const { getMock, postMock, getMigration, setMigration, getUpdate, setUpdate } = vi.hoisted(() => ({
+const {
+	getMock,
+	postMock,
+	getMigration,
+	setMigration,
+	getUpdate,
+	setUpdate,
+	updGetStatus,
+	updCheck,
+	updDownload,
+	updInstall,
+	updOnStatus,
+} = vi.hoisted(() => ({
 	getMock: vi.fn(),
 	postMock: vi.fn(),
 	getMigration: vi.fn(),
 	setMigration: vi.fn(),
 	getUpdate: vi.fn(),
 	setUpdate: vi.fn(),
+	updGetStatus: vi.fn(),
+	updCheck: vi.fn(),
+	updDownload: vi.fn(),
+	updInstall: vi.fn(),
+	updOnStatus: vi.fn(),
 }));
 
 vi.mock("../lib/api-client", () => ({
@@ -22,6 +39,13 @@ vi.mock("../lib/bridge", () => ({
 	aoBridge: {
 		appState: { getMigration, setMigration },
 		updateSettings: { get: getUpdate, set: setUpdate },
+		updates: {
+			getStatus: updGetStatus,
+			check: updCheck,
+			download: updDownload,
+			install: updInstall,
+			onStatus: updOnStatus,
+		},
 	},
 }));
 
@@ -43,6 +67,11 @@ beforeEach(() => {
 	setMigration.mockResolvedValue(undefined);
 	getUpdate.mockResolvedValue({ enabled: true, channel: "latest", nightlyAck: false });
 	setUpdate.mockResolvedValue(undefined);
+	updGetStatus.mockResolvedValue({ state: "idle" });
+	updCheck.mockResolvedValue(undefined);
+	updDownload.mockResolvedValue(undefined);
+	updInstall.mockResolvedValue(undefined);
+	updOnStatus.mockReturnValue(() => undefined);
 });
 
 describe("GlobalSettingsForm", () => {
@@ -98,6 +127,41 @@ describe("GlobalSettingsForm", () => {
 		renderForm();
 		expect(await screen.findByText("None found")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Run migration" })).toBeDisabled();
+	});
+
+	it("Check for updates triggers a manual check", async () => {
+		renderForm();
+		const btn = await screen.findByRole("button", { name: "Check for updates" });
+		await userEvent.click(btn);
+		expect(updCheck).toHaveBeenCalled();
+	});
+
+	it("offers an Update button when an update is available and downloads it", async () => {
+		let emit: (s: { state: string; version?: string }) => void = () => undefined;
+		updOnStatus.mockImplementation((cb: (s: unknown) => void) => {
+			emit = cb as typeof emit;
+			return () => undefined;
+		});
+		renderForm();
+		await screen.findByRole("button", { name: "Check for updates" });
+		act(() => emit({ state: "available", version: "1.2.3" }));
+		const updateBtn = await screen.findByRole("button", { name: "Update to v1.2.3" });
+		await userEvent.click(updateBtn);
+		expect(updDownload).toHaveBeenCalled();
+	});
+
+	it("offers Restart & install once downloaded and installs it", async () => {
+		let emit: (s: { state: string; version?: string }) => void = () => undefined;
+		updOnStatus.mockImplementation((cb: (s: unknown) => void) => {
+			emit = cb as typeof emit;
+			return () => undefined;
+		});
+		renderForm();
+		await screen.findByRole("button", { name: "Check for updates" });
+		act(() => emit({ state: "downloaded", version: "1.2.3" }));
+		const installBtn = await screen.findByRole("button", { name: /Restart & install/ });
+		await userEvent.click(installBtn);
+		expect(updInstall).toHaveBeenCalled();
 	});
 
 	it("a failed import surfaces the error and marks failed", async () => {

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { aoBridge } from "../lib/bridge";
-import type { UpdateChannel, UpdateSettings } from "../../main/update-settings";
+import type { UpdateChannel, UpdateSettings, UpdateStatus } from "../../main/update-settings";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Label } from "./ui/label";
@@ -104,9 +105,83 @@ export function UpdatesSection() {
 					)}
 					{savedAt && !save.isPending && !save.isError && <span className="text-[12px] text-success">Saved.</span>}
 				</div>
+
+				<UpdateActions />
 			</CardContent>
 		</Card>
 	);
+}
+
+// UpdateActions is the on-demand update control: a Check for updates button plus
+// an Update button that downloads then installs. It works even when automatic
+// updates are off, so users who never opted in can still pull the latest build.
+function UpdateActions() {
+	const [status, setStatus] = useState<UpdateStatus>({ state: "idle" });
+
+	useEffect(() => {
+		let live = true;
+		void aoBridge.updates.getStatus().then((s) => {
+			if (live) setStatus(s);
+		});
+		const off = aoBridge.updates.onStatus(setStatus);
+		return () => {
+			live = false;
+			off?.();
+		};
+	}, []);
+
+	const checking = status.state === "checking";
+	const downloading = status.state === "downloading";
+	const busy = checking || downloading;
+
+	return (
+		<div className="flex flex-col gap-2 border-t border-border pt-4">
+			<div className="flex items-center gap-3">
+				<Button type="button" variant="outline" onClick={() => void aoBridge.updates.check()} disabled={busy}>
+					{checking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+					Check for updates
+				</Button>
+
+				{status.state === "available" && (
+					<Button type="button" variant="primary" onClick={() => void aoBridge.updates.download()}>
+						Update to {status.version ? `v${status.version}` : "latest"}
+					</Button>
+				)}
+				{status.state === "downloaded" && (
+					<Button type="button" variant="primary" onClick={() => void aoBridge.updates.install()}>
+						Restart &amp; install
+					</Button>
+				)}
+
+				<UpdateStatusLine status={status} />
+			</div>
+		</div>
+	);
+}
+
+function UpdateStatusLine({ status }: { status: UpdateStatus }) {
+	switch (status.state) {
+		case "checking":
+			return <span className="text-[12px] text-muted-foreground">Checking for updates…</span>;
+		case "available":
+			return (
+				<span className="text-[12px] text-muted-foreground">
+					Update available{status.version ? ` (v${status.version})` : ""}.
+				</span>
+			);
+		case "downloading":
+			return <span className="text-[12px] text-muted-foreground">Downloading… {status.percent ?? 0}%</span>;
+		case "downloaded":
+			return <span className="text-[12px] text-success">Downloaded. Restart to finish updating.</span>;
+		case "not-available":
+			return <span className="text-[12px] text-muted-foreground">You're on the latest version.</span>;
+		case "unsupported":
+			return <span className="text-[12px] text-passive">{status.message ?? "Updates need the installed app."}</span>;
+		case "error":
+			return <span className="text-[12px] text-error">{status.message ?? "Update failed."}</span>;
+		default:
+			return null;
+	}
 }
 
 function EnabledSelect({ id, value, onChange }: { id: string; value: boolean; onChange: (value: boolean) => void }) {

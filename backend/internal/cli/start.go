@@ -87,7 +87,9 @@ func (c *commandContext) runStart(ctx context.Context, cmd *cobra.Command, opts 
 
 	var err error
 	if appPath == "" {
-		appPath, err = c.fetchApp(ctx)
+		// Progress for the fetch path goes to stderr so stdout stays pure JSON
+		// under --json. The resolve-and-launch fast path above stays quiet.
+		appPath, err = c.fetchApp(ctx, cmd.ErrOrStderr())
 		if err != nil {
 			return err
 		}
@@ -233,14 +235,14 @@ func isUsableBundle(p string) bool {
 // the resolved bundle path (spec §6.3). macOS unpacks a signed zip into staging,
 // Windows runs the NSIS installer silently, and Linux drops a chmod'd AppImage at
 // a stable path.
-func (c *commandContext) fetchApp(ctx context.Context) (string, error) {
+func (c *commandContext) fetchApp(ctx context.Context, w io.Writer) (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
-		return c.fetchAppDarwin(ctx)
+		return c.fetchAppDarwin(ctx, w)
 	case "windows":
-		return c.fetchAppWindows(ctx)
+		return c.fetchAppWindows(ctx, w)
 	case "linux":
-		return c.fetchAppLinux(ctx)
+		return c.fetchAppLinux(ctx, w)
 	default:
 		return "", fmt.Errorf("ao start: fetch not supported on %s", runtime.GOOS)
 	}
@@ -248,7 +250,7 @@ func (c *commandContext) fetchApp(ctx context.Context) (string, error) {
 
 // fetchAppDarwin downloads the latest macOS release zip and unpacks it into a
 // staging dir under ~/.ao/staging, returning the .app bundle path (spec §6.3).
-func (c *commandContext) fetchAppDarwin(ctx context.Context) (string, error) {
+func (c *commandContext) fetchAppDarwin(ctx context.Context, w io.Writer) (string, error) {
 	asset, err := assetName()
 	if err != nil {
 		return "", err
@@ -270,10 +272,13 @@ func (c *commandContext) fetchAppDarwin(ctx context.Context) (string, error) {
 	}
 
 	zipPath := filepath.Join(staging, asset)
-	if err := c.download(ctx, url, zipPath); err != nil {
+	if err := c.download(ctx, w, url, asset, zipPath); err != nil {
 		return "", fmt.Errorf("download %s: %w", url, err)
 	}
 
+	// The unpack step is silent and can take seconds on a large bundle; announce
+	// it so a quiet `ao start` doesn't look hung after the download finishes.
+	_, _ = fmt.Fprintln(w, "Unpacking...")
 	// ditto preserves the .app code signature; plain unzip corrupts it (spec §6.3).
 	if out, err := c.deps.CommandOutput(ctx, "ditto", "-x", "-k", zipPath, staging); err != nil {
 		return "", fmt.Errorf("ditto unpack: %w: %s", err, out)

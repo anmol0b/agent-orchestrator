@@ -113,8 +113,8 @@ export function MigrationSection() {
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
 				<p className="text-[12px] leading-5 text-muted-foreground">
-					Import projects and orchestrator sessions from an earlier Agent Orchestrator install. Your old files are
-					never modified, and this is safe to run more than once.
+					Import projects and orchestrator sessions from an earlier Agent Orchestrator install. Your old files are never
+					modified, and this is safe to run more than once.
 				</p>
 
 				<div className="flex flex-col gap-2 text-[12px]">

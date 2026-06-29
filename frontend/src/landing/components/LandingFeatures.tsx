@@ -282,9 +282,10 @@ function FeatureNarrative({ worker, orchestrator }: { worker: AgentHarness; orch
 			meta="23 harnesses"
 		>
 			<p>
-				AO does not replace <FeatureStrong>{worker.name}</FeatureStrong>, <FeatureStrong>{orchestrator.name}</FeatureStrong>,
-				Cursor, Aider, or OpenCode. It launches the same terminal-native tools you already trust, then standardizes the
-				parts around them: <FeatureStrong>session restore, prompt delivery, hooks, runtime panes, and ownership.</FeatureStrong>
+				AO does not replace <FeatureStrong>{worker.name}</FeatureStrong>,{" "}
+				<FeatureStrong>{orchestrator.name}</FeatureStrong>, Cursor, Aider, or OpenCode. It launches the same
+				terminal-native tools you already trust, then standardizes the parts around them:{" "}
+				<FeatureStrong>session restore, prompt delivery, hooks, runtime panes, and ownership.</FeatureStrong>
 			</p>
 			<p>
 				Pick one agent to write and another to supervise. AO keeps the contract stable while every CLI keeps its native
@@ -464,7 +465,9 @@ function AgentSelectLabel({
 			<div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--fg-dim)]">{label}</div>
 			<div
 				className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition duration-200 ${
-					active ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]" : "border-[color:var(--border)] bg-white/[0.035]"
+					active
+						? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
+						: "border-[color:var(--border)] bg-white/[0.035]"
 				}`}
 			>
 				<AgentLogo agent={agent} className="h-6 w-6" />
@@ -747,9 +750,9 @@ function WorkspaceNarrative({ workspace }: { workspace: (typeof workspaceSession
 			meta={workspace.id}
 		>
 			<p>
-				Each AO session runs in a separate <FeatureStrong>git worktree</FeatureStrong> with its own branch, terminal pane,
-				changed files, and owner. The selected session here belongs to <FeatureStrong>{workspace.agent}</FeatureStrong> on{" "}
-				<FeatureStrong>{workspace.branch}</FeatureStrong>.
+				Each AO session runs in a separate <FeatureStrong>git worktree</FeatureStrong> with its own branch, terminal
+				pane, changed files, and owner. The selected session here belongs to{" "}
+				<FeatureStrong>{workspace.agent}</FeatureStrong> on <FeatureStrong>{workspace.branch}</FeatureStrong>.
 			</p>
 			<p>
 				That means one agent can fail CI, another can keep shipping, and cleanup is just removing the session worktree.
@@ -777,13 +780,11 @@ function FeedbackNarrative({ feedback }: { feedback: (typeof feedbackSessions)[n
 			meta={feedback.number}
 		>
 			<p>
-				AO watches <FeatureStrong>checks, reviews, comments, mergeability, and PR state</FeatureStrong>, then resolves the
-				session that owns the branch. For this PR, feedback goes back to <FeatureStrong>{feedback.agent}</FeatureStrong> in{" "}
-				<FeatureStrong>{feedback.session}</FeatureStrong>.
+				AO watches <FeatureStrong>checks, reviews, comments, mergeability, and PR state</FeatureStrong>, then resolves
+				the session that owns the branch. For this PR, feedback goes back to{" "}
+				<FeatureStrong>{feedback.agent}</FeatureStrong> in <FeatureStrong>{feedback.session}</FeatureStrong>.
 			</p>
-			<p>
-				The agent gets the actionable context, not a vague “CI failed” notification you have to manually trace.
-			</p>
+			<p>The agent gets the actionable context, not a vague “CI failed” notification you have to manually trace.</p>
 		</FeatureCopy>
 	);
 }
@@ -933,7 +934,14 @@ function FeedbackRoutingDemo({
 								<TerminalLine text={`owner         ${feedback.agent}`} />
 								<TerminalLine text={`session       ${feedback.session}`} />
 								<TerminalLine accent text={`message       ${feedback.nudge}`} />
-								<TerminalLine success text={sentSession === feedback.session ? "feedback routed to the running worker pane" : "ready to route feedback"} />
+								<TerminalLine
+									success
+									text={
+										sentSession === feedback.session
+											? "feedback routed to the running worker pane"
+											: "ready to route feedback"
+									}
+								/>
 							</div>
 						</div>
 					</div>

@@ -45,7 +45,12 @@ const session: WorkspaceSession = {
 	prs: [],
 };
 
-type CreateProjectHandler = (input: { path: string; workerAgent: string; orchestratorAgent: string }) => Promise<void>;
+type CreateProjectHandler = (input: {
+	path: string;
+	asWorkspace: boolean;
+	workerAgent: string;
+	orchestratorAgent: string;
+}) => Promise<void>;
 type RemoveProjectHandler = (projectId: string) => Promise<void>;
 
 function renderSidebar({
@@ -138,20 +143,36 @@ describe("Sidebar", () => {
 		const user = userEvent.setup();
 		const onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-project");
+		window.ao!.app.scanImportFolder = vi.fn().mockResolvedValue({
+			path: "/repo/new-project",
+			repos: [
+				{
+					name: "new-project",
+					path: "/repo/new-project",
+					relativePath: ".",
+					branch: "main",
+					remote: "https://github.com/org/new-project.git",
+					hasRemote: true,
+				},
+			],
+		});
 		renderSidebar({ onCreateProject });
 
 		await user.click(screen.getByLabelText("New project"));
 
-		expect(await screen.findByText("/repo/new-project")).toBeInTheDocument();
-		const dialog = screen.getByRole("dialog", { name: "Project agents" });
+		const dialog = await screen.findByRole("dialog", { name: "Import to Agent Orchestrator" });
 		expect(dialog).toHaveClass("left-1/2", "top-1/2", "-translate-x-1/2", "-translate-y-1/2");
+		await user.click(screen.getByRole("button", { name: "Project" }));
+		await user.click(screen.getByRole("button", { name: /Choose a project folder/ }));
+		expect((await screen.findAllByText("/repo/new-project")).length).toBeGreaterThan(0);
 		await chooseOption(screen.getByRole("combobox", { name: "Worker agent" }), "codex");
 		await chooseOption(screen.getByRole("combobox", { name: "Orchestrator agent" }), "claude-code");
-		await user.click(screen.getByRole("button", { name: "Create and start" }));
+		await user.click(screen.getByRole("button", { name: "Import project" }));
 
 		await waitFor(() =>
 			expect(onCreateProject).toHaveBeenCalledWith({
 				path: "/repo/new-project",
+				asWorkspace: false,
 				workerAgent: "codex",
 				orchestratorAgent: "claude-code",
 			}),

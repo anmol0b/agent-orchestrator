@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type CSSProperties, useCallback, useEffect } from "react";
 import { ShellTopbar } from "../components/ShellTopbar";
 import { Sidebar } from "../components/Sidebar";
+import type { ImportProjectInput } from "../components/ImportProjectDialog";
 import { SidebarProvider } from "../components/ui/sidebar";
 import { TitlebarNav } from "../components/TitlebarNav";
 import { useDaemonStatus } from "../hooks/useDaemonStatus";
@@ -54,7 +55,7 @@ function ShellLayout() {
 	);
 
 	const createProject = useCallback(
-		async (input: { path: string; workerAgent: string; orchestratorAgent: string }) => {
+		async (input: ImportProjectInput) => {
 			void addRendererExceptionStep("Project add requested", {
 				source: "project-add",
 				operation: "project_add",
@@ -64,6 +65,7 @@ function ShellLayout() {
 			const { data, error } = await apiClient.POST("/api/v1/projects", {
 				body: {
 					path: input.path,
+					asWorkspace: input.asWorkspace,
 					config: {
 						worker: { agent: input.workerAgent },
 						orchestrator: { agent: input.orchestratorAgent },

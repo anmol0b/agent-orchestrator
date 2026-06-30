@@ -58,6 +58,7 @@ if (typeof window !== "undefined") {
 		app: {
 			getVersion: async () => "0.0.0-test",
 			chooseDirectory: async () => null,
+			scanImportFolder: async (input) => ({ path: input.path, repos: [] }),
 		},
 		clipboard: {
 			writeText: async () => undefined,

@@ -22,7 +22,6 @@ import {
 	type WorkspaceSummary,
 	workerSessions,
 } from "../types/workspace";
-import { aoBridge } from "../lib/bridge";
 import { workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
 import { renameSession } from "../lib/rename-session";
@@ -57,7 +56,7 @@ import { OrchestratorIcon } from "./icons";
 import aoLogo from "../assets/ao-logo.png";
 import { cn } from "../lib/utils";
 import { useUiStore } from "../stores/ui-store";
-import { CreateProjectAgentSheet, type CreateProjectAgentSelection } from "./CreateProjectAgentSheet";
+import { ImportProjectDialog, type ImportProjectInput } from "./ImportProjectDialog";
 
 // The macOS hiddenInset traffic lights and the fixed TitlebarNav overlay live
 // in the full-width topbar's left inset (_shell renders the bar above the
@@ -81,7 +80,7 @@ type SidebarProps = {
 	underTopbar?: boolean;
 	workspaceError?: string;
 	workspaces: WorkspaceSummary[];
-	onCreateProject: (input: { path: string; workerAgent: string; orchestratorAgent: string }) => Promise<void>;
+	onCreateProject: (input: ImportProjectInput) => Promise<void>;
 	onRemoveProject: (projectId: string) => Promise<void>;
 };
 
@@ -687,14 +686,14 @@ function SessionRow({ session, active, onOpen }: { session: WorkspaceSession; ac
 function CreateProjectButton({ onCreateProject }: Pick<SidebarProps, "onCreateProject">) {
 	return (
 		<CreateProjectFlow onCreateProject={onCreateProject}>
-			{({ disabled, choosePath, label }) => (
+			{({ disabled, openDialog, label }) => (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<button
 							aria-label="New project"
 							className="grid h-[18px] w-[18px] place-items-center rounded-[4px] text-passive transition-colors hover:bg-interactive-hover hover:text-muted-foreground"
 							disabled={disabled}
-							onClick={choosePath}
+							onClick={openDialog}
 							type="button"
 						>
 							<Plus className="h-[13px] w-[13px]" aria-hidden="true" />
@@ -710,7 +709,7 @@ function CreateProjectButton({ onCreateProject }: Pick<SidebarProps, "onCreatePr
 function CreateProjectListItem({ onCreateProject }: Pick<SidebarProps, "onCreateProject">) {
 	return (
 		<CreateProjectFlow onCreateProject={onCreateProject}>
-			{({ disabled, choosePath, label }) => (
+			{({ disabled, openDialog, label }) => (
 				<SidebarMenuItem className="mb-px group-data-[collapsible=icon]:mb-0">
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -718,7 +717,7 @@ function CreateProjectListItem({ onCreateProject }: Pick<SidebarProps, "onCreate
 								aria-label="New project"
 								className="grid h-9 w-full place-items-center rounded-[5px] text-passive transition-colors hover:bg-interactive-hover hover:text-muted-foreground"
 								disabled={disabled}
-								onClick={choosePath}
+								onClick={openDialog}
 								type="button"
 							>
 								<Plus className="h-[13px] w-[13px]" aria-hidden="true" />
@@ -736,33 +735,18 @@ function CreateProjectFlow({
 	children,
 	onCreateProject,
 }: Pick<SidebarProps, "onCreateProject"> & {
-	children: (state: { choosePath: () => void; disabled: boolean; label: string }) => ReactNode;
+	children: (state: { openDialog: () => void; disabled: boolean; label: string }) => ReactNode;
 }) {
 	const [error, setError] = useState<string | null>(null);
-	const [selectedPath, setSelectedPath] = useState<string | null>(null);
-	const [isChoosingPath, setIsChoosingPath] = useState(false);
+	const [open, setOpen] = useState(false);
 	const [isCreating, setIsCreating] = useState(false);
 
-	const choosePath = async () => {
-		setError(null);
-		setIsChoosingPath(true);
-		try {
-			const path = await aoBridge.app.chooseDirectory();
-			if (path) setSelectedPath(path);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Could not add project");
-		} finally {
-			setIsChoosingPath(false);
-		}
-	};
-
-	const createProject = async (selection: CreateProjectAgentSelection) => {
-		if (!selectedPath) return;
+	const createProject = async (input: ImportProjectInput) => {
 		setError(null);
 		setIsCreating(true);
 		try {
-			await onCreateProject({ path: selectedPath, ...selection });
-			setSelectedPath(null);
+			await onCreateProject(input);
+			setOpen(false);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Could not add project");
 		} finally {
@@ -770,23 +754,29 @@ function CreateProjectFlow({
 		}
 	};
 
-	const label = isChoosingPath ? "Opening..." : isCreating ? "Creating..." : "New project";
+	const label = isCreating ? "Importing..." : "New project";
 
 	return (
 		<>
-			{children({ choosePath: () => void choosePath(), disabled: isChoosingPath || isCreating, label })}
-			<CreateProjectAgentSheet
+			{children({
+				openDialog: () => {
+					setError(null);
+					setOpen(true);
+				},
+				disabled: isCreating,
+				label,
+			})}
+			<ImportProjectDialog
 				error={error}
-				isCreating={isCreating}
+				isImporting={isCreating}
 				onOpenChange={(open) => {
 					if (!open) {
-						setSelectedPath(null);
 						setError(null);
 					}
+					setOpen(open);
 				}}
 				onSubmit={createProject}
-				open={selectedPath !== null}
-				path={selectedPath}
+				open={open}
 			/>
 			{error && (
 				<span className="sr-only" role="status">

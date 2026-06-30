@@ -566,9 +566,7 @@ function ReviewStateRow({ reviewState }: { reviewState: PRReviewState }) {
 				</div>
 			</div>
 			<span className="reviewer-row__verdict-group">
-				<span className={cn("reviewer-row__verdict", `reviewer-row__verdict--${verdict.tone}`)}>
-					{verdict.label}
-				</span>
+				<span className={cn("reviewer-row__verdict", `reviewer-row__verdict--${verdict.tone}`)}>{verdict.label}</span>
 				{previousVerdict ? (
 					<span className={cn("reviewer-row__previous", `reviewer-row__previous--${previousVerdict.tone}`)}>
 						Previous: {previousVerdict.label}

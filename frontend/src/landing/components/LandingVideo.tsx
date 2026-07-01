@@ -7,7 +7,7 @@ export function LandingVideo() {
 	const [isPlaying, setIsPlaying] = useState(false);
 	const videoTitle = "Agent Orchestrator Launch Demo";
 	const encodedTitle = encodeURIComponent(videoTitle);
-	const thumbnailUrl = `https://image.mux.com/${muxPlaybackId}/thumbnail.webp?time=0&width=1920`;
+	const previewPosterUrl = "/mux-video-preview.jpg";
 
 	return (
 		<section
@@ -43,7 +43,7 @@ export function LandingVideo() {
 								aria-label={`Play ${videoTitle}`}
 							>
 								<img
-									src={thumbnailUrl}
+									src={previewPosterUrl}
 									alt=""
 									className="absolute inset-0 h-full w-full object-cover opacity-80 transition duration-500 group-hover:scale-[1.015] group-hover:opacity-95"
 								/>

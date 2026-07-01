@@ -618,7 +618,7 @@ export function LandingHero() {
 					<div className="gsap-reveal mt-10 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
 						<a
 							href="/docs/installation"
-							className="hero-pressable group inline-flex h-12 w-full items-center justify-center gap-2 bg-[color:var(--accent)] px-6 text-[15px] font-semibold shadow-[0_12px_32px_-18px_var(--accent-glow)] hover:brightness-[1.07] hover:shadow-[0_18px_44px_-16px_var(--accent-glow)] sm:w-auto"
+							className="hero-pressable group inline-flex h-12 w-full items-center justify-center gap-2 rounded-[6px] border border-transparent bg-[color:var(--accent)] px-6 text-[15px] font-semibold shadow-[0_12px_32px_-18px_var(--accent-glow)] hover:brightness-[1.07] hover:shadow-[0_18px_44px_-16px_var(--accent-glow)] sm:w-auto"
 							style={{ color: "#000000" }}
 						>
 							<DownloadIcon className="h-4 w-4" />
@@ -629,7 +629,7 @@ export function LandingHero() {
 							href="https://github.com/AgentWrapper/agent-orchestrator"
 							target="_blank"
 							rel="noreferrer"
-							className="hero-pressable gh-star-btn group relative inline-flex h-12 w-full items-center justify-center gap-2 overflow-visible border border-[color:var(--border-strong)] bg-transparent px-5 text-[15px] font-medium text-[color:var(--fg)] hover:border-[color:var(--accent-glow)] hover:bg-[color:var(--bg-card-hover)] sm:w-auto"
+							className="hero-pressable gh-star-btn group relative inline-flex h-12 w-full items-center justify-center gap-2 overflow-visible rounded-[6px] border border-[color:var(--border-strong)] bg-transparent px-6 text-[15px] font-semibold text-[color:var(--fg)] hover:border-[color:var(--accent-glow)] hover:bg-[color:var(--bg-card-hover)] sm:w-auto"
 						>
 							<GithubIcon className="h-4 w-4" />
 							<span>Star on GitHub</span>

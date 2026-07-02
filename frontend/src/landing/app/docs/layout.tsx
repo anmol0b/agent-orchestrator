@@ -54,7 +54,7 @@ const links: LinkItemType[] = [
 async function GitHubStars() {
 	let stars: string | null = null;
 	try {
-		const res = await fetch("https://api.github.com/repos/ComposioHQ/agent-orchestrator", {
+		const res = await fetch("https://api.github.com/repos/AgentWrapper/agent-orchestrator", {
 			next: { revalidate: 3600 },
 		});
 		if (res.ok) {
@@ -104,13 +104,13 @@ export default function Layout({ children }: { children: ReactNode }) {
 					collapsible: true,
 					banner: (
 						<a
-							href="https://github.com/ComposioHQ/agent-orchestrator"
+							href="https://github.com/AgentWrapper/agent-orchestrator"
 							target="_blank"
 							rel="noreferrer noopener"
 							className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors py-1"
 						>
 							<GithubIcon />
-							<span>ComposioHQ/agent-orchestrator</span>
+							<span>AgentWrapper/agent-orchestrator</span>
 							<GitHubStars />
 						</a>
 					),

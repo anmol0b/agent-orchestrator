@@ -1,3 +1,5 @@
+import { formatCompactNumber, getGitHubRepoStats } from "../lib/github-repo";
+
 function GithubIcon({ className = "" }: { className?: string }) {
 	return (
 		<svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -24,7 +26,9 @@ function BookIcon({ className = "" }: { className?: string }) {
 	);
 }
 
-export function LandingCTA() {
+export async function LandingCTA() {
+	const { stars } = await getGitHubRepoStats();
+
 	return (
 		<section
 			id="cta"
@@ -64,7 +68,7 @@ export function LandingCTA() {
 							style={{ color: "#081225" }}
 						>
 							<GithubIcon className="h-4 w-4" />
-							Star on GitHub · 7.7k
+							Star on GitHub · {formatCompactNumber(stars)}
 							<ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 						</a>
 						<a

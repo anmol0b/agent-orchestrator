@@ -182,8 +182,8 @@ body::-webkit-scrollbar,
 }
 
 .landing-hero-section {
-	padding-top: clamp(160px, 16vw, 220px);
-	padding-bottom: clamp(100px, 12vw, 160px);
+	padding-top: clamp(120px, 13vw, 180px);
+	padding-bottom: clamp(80px, 9vw, 120px);
 }
 
 .landing-section {
@@ -252,12 +252,32 @@ body::-webkit-scrollbar,
 }
 
 .landing-hero-heading {
-	max-width: 980px;
-	font-size: clamp(48px, 7vw, 80px);
-	font-weight: 600;
-	line-height: 1.02;
-	letter-spacing: -0.03em;
+	max-width: 1080px;
+	font-size: clamp(52px, 6.2vw, 84px);
+	font-weight: 650;
+	line-height: 0.96;
+	letter-spacing: 0;
 	color: var(--fg);
+}
+
+.landing-hero-heading-setup {
+	font-size: 0.74em;
+	font-weight: 440;
+	line-height: 1.08;
+	color: color-mix(in oklab, var(--fg) 72%, var(--fg-muted));
+}
+
+.landing-hero-heading-action {
+	margin-top: 0.04em;
+	font-size: 1em;
+	font-weight: 760;
+	line-height: 0.96;
+	color: var(--fg);
+}
+
+.landing-hero-heading-accent {
+	color: #93b4f8;
+	font-weight: 780;
 }
 
 .landing-body {

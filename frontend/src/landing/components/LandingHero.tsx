@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScaledMockup } from "./ScaledMockup";
@@ -42,6 +42,18 @@ function StarIcon({ className = "" }: { className?: string }) {
 			<path d="M12 2.5l2.95 5.98 6.6.96-4.77 4.65 1.13 6.57L12 17.55l-5.91 3.11 1.13-6.57L2.45 9.44l6.6-.96L12 2.5z" />
 		</svg>
 	);
+}
+
+const GITHUB_REPO_API_URL = "https://api.github.com/repos/AgentWrapper/agent-orchestrator";
+
+function formatCompactNumber(value: number): string {
+	if (value >= 1_000_000) {
+		return `${(value / 1_000_000).toFixed(1)}m`;
+	}
+	if (value >= 1_000) {
+		return `${(value / 1_000).toFixed(1)}k`;
+	}
+	return String(value);
 }
 
 const appProjects = [
@@ -554,6 +566,38 @@ function SessionDot({ zone }: { zone: string }) {
 
 export function LandingHero() {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const [starCount, setStarCount] = useState<string | null>(null);
+
+	useEffect(() => {
+		let cancelled = false;
+
+		async function loadGitHubStars() {
+			try {
+				const response = await fetch(GITHUB_REPO_API_URL, {
+					headers: {
+						Accept: "application/vnd.github+json",
+					},
+				});
+
+				if (!response.ok) {
+					return;
+				}
+
+				const data = (await response.json()) as { stargazers_count?: number };
+				if (!cancelled && typeof data.stargazers_count === "number") {
+					setStarCount(formatCompactNumber(data.stargazers_count));
+				}
+			} catch {
+				// Keep the neutral loading placeholder if the browser cannot reach GitHub.
+			}
+		}
+
+		void loadGitHubStars();
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	useGSAP(
 		() => {
@@ -606,16 +650,12 @@ export function LandingHero() {
 			<div className="relative z-10 mx-auto w-full max-w-[1200px] px-5 sm:px-8 lg:px-12 xl:px-16">
 				<div className="mx-auto text-center">
 					<h1 data-testid="hero-headline" className="gsap-reveal landing-hero-heading mx-auto font-sans">
-						<span className="block">Stop babysitting coding agents.</span>
-						<span className="mt-2 block">
-							Start merging <span className="text-[#93b4f8]">real work.</span>
+						<span className="landing-hero-heading-setup block">Stop babysitting agents.</span>
+						<span className="landing-hero-heading-action block">
+							Start merging <span className="landing-hero-heading-accent">real work.</span>
 						</span>
 					</h1>
-					<p className="gsap-reveal landing-body mx-auto mt-10">
-						Free, Apache 2.0 licensed, and runs on your laptop. Fork it, inspect it, and ship your first parallel agent
-						workflow in minutes.
-					</p>
-					<div className="gsap-reveal mt-10 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
+					<div className="gsap-reveal mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
 						<a
 							href="/docs/installation"
 							className="hero-pressable group inline-flex h-12 w-full items-center justify-center gap-2 rounded-[6px] border border-transparent bg-[color:var(--accent)] px-6 text-[15px] font-semibold shadow-[0_12px_32px_-18px_var(--accent-glow)] hover:brightness-[1.07] hover:shadow-[0_18px_44px_-16px_var(--accent-glow)] sm:w-auto"
@@ -645,7 +685,7 @@ export function LandingHero() {
 								/>
 							</span>
 							<span className="gh-star-count rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[12px] leading-none text-[color:var(--fg-muted)]">
-								7.7k
+								{starCount ?? "..."}
 							</span>
 						</a>
 					</div>

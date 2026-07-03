@@ -170,7 +170,36 @@ describe("ProjectSettingsForm", () => {
 		expect(screen.queryByText("Saved.")).not.toBeInTheDocument();
 	});
 
-	it("requires worker and orchestrator agents for existing projects missing role config", async () => {
+	it("offers every supported reviewer harness", async () => {
+		getMock.mockResolvedValue({
+			data: {
+				status: "ok",
+				project: {
+					id: "proj-1",
+					name: "Project One",
+					kind: "single_repo",
+					path: "/repo/project-one",
+					repo: "",
+					defaultBranch: "main",
+					config: {
+						worker: { agent: "codex" },
+						orchestrator: { agent: "claude-code" },
+					},
+				},
+			},
+			error: undefined,
+		});
+
+		renderSettings();
+
+		const reviewerAgent = await screen.findByRole("combobox", { name: "Default reviewer agent" });
+		await userEvent.click(reviewerAgent);
+		for (const option of ["claude-code (default)", "claude-code", "codex", "opencode"]) {
+			expect(await screen.findByRole("option", { name: option })).toBeInTheDocument();
+		}
+	});
+
+	it("defaults worker and orchestrator to claude-code for projects missing role config", async () => {
 		getMock.mockResolvedValue({
 			data: {
 				status: "ok",
@@ -189,15 +218,25 @@ describe("ProjectSettingsForm", () => {
 
 		renderSettings();
 
-		expect(await screen.findByText("Worker and orchestrator agents are required.")).toBeInTheDocument();
-		expect(screen.getByRole("combobox", { name: "Default worker agent" })).toHaveTextContent("Select worker agent");
-		expect(screen.getByRole("combobox", { name: "Default orchestrator agent" })).toHaveTextContent(
-			"Select orchestrator agent",
-		);
+		const workerAgent = await screen.findByRole("combobox", { name: "Default worker agent" });
+		const orchestratorAgent = screen.getByRole("combobox", { name: "Default orchestrator agent" });
+		expect(workerAgent).toHaveTextContent("claude-code");
+		expect(orchestratorAgent).toHaveTextContent("claude-code");
+		expect(screen.queryByText("Worker and orchestrator agents are required.")).not.toBeInTheDocument();
 
 		await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-		expect(await screen.findAllByText("Worker and orchestrator agents are required.")).toHaveLength(2);
-		expect(putMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}/config", {
+			params: { path: { id: "proj-1" } },
+			body: {
+				config: {
+					defaultBranch: "main",
+					worker: { agent: "claude-code" },
+					orchestrator: { agent: "claude-code" },
+				},
+			},
+		});
+		expect(await screen.findByText("Saved.")).toBeInTheDocument();
 	});
 });

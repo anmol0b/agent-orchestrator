@@ -35,6 +35,7 @@ type systemPromptConfig struct {
 	OrchestratorSessionID string
 	ProjectRules          string
 	OrchestratorRules     string
+	AOSkillPointer        string
 }
 
 type projectRulesConfig struct {
@@ -67,7 +68,7 @@ The issue context above is current. Fetch comments or linked issues only if you 
 }
 
 func buildSystemPromptText(cfg systemPromptConfig) string {
-	sections := make([]string, 0, 6)
+	sections := make([]string, 0, 7)
 	switch cfg.Role {
 	case sessionPromptRoleOrchestrator:
 		sections = append(sections, orchestratorSystemPrompt(cfg.Project))
@@ -85,6 +86,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		}
 	default:
 		return ""
+	}
+	if pointer := strings.TrimSpace(cfg.AOSkillPointer); pointer != "" {
+		sections = append(sections, pointer)
 	}
 	sections = append(sections, systemPromptGuard())
 	return strings.Join(sections, "\n\n")
@@ -168,8 +172,8 @@ Your job is to coordinate work, not to perform implementation. Keep the project 
 
 - `+"`ao status`"+` - inspect project, session, PR, and review state.
 - `+"`ao session ls --project %s`"+` - list sessions for this project.
-- `+"`ao spawn --project %s --prompt \"<clear worker task>\"`"+` - spawn a freeform worker.
-- `+"`ao spawn --project %s --issue <issue-id>`"+` - spawn a worker for an issue.
+- `+"`ao spawn --project %s --name \"<label, max 20 chars>\" --prompt \"<clear worker task>\"`"+` - spawn a freeform worker.
+- `+"`ao spawn --project %s --name \"<label, max 20 chars>\" --issue <issue-id>`"+` - spawn a worker for an issue.
 - `+"`ao send --session <session-id> --message \"<message>\"`"+` - message a worker.
 - `+"`ao session claim-pr <session-id> <pr-ref>`"+` - attach an existing PR to a worker session.
 - `+"`ao session kill <session-id>`"+` - terminate a session when appropriate.

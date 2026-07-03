@@ -242,6 +242,16 @@ func blockedDataDir(t *testing.T) string {
 	return path
 }
 
+func requireNoPromptDir(t *testing.T, dataDir string, id domain.SessionID) {
+	t.Helper()
+	path := filepath.Join(dataDir, "prompts", string(id))
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("prompt dir %s still exists", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat prompt dir %s: %v", path, err)
+	}
+}
+
 // alwaysResumeAgent mimics Claude Code: it pins a deterministic session id, so
 // GetRestoreCommand can resume any session even with no captured agentSessionId
 // and no prompt.
@@ -520,7 +530,12 @@ func TestSpawn_ParksRowTerminatedWhenSeedDeleteFails(t *testing.T) {
 }
 func TestKill_TearsDownRuntimeAndWorkspace(t *testing.T) {
 	m, st, rt, ws := newManager()
+	dataDir := t.TempDir()
+	m.dataDir = dataDir
 	st.sessions["mer-1"] = mkLive("mer-1")
+	if _, err := m.writeSystemPromptFile("mer-1", "system prompt"); err != nil {
+		t.Fatal(err)
+	}
 	freed, err := m.Kill(ctx, "mer-1")
 	if err != nil || !freed {
 		t.Fatalf("freed=%v err=%v", freed, err)
@@ -528,6 +543,7 @@ func TestKill_TearsDownRuntimeAndWorkspace(t *testing.T) {
 	if rt.destroyed != 1 || ws.destroyed != 1 {
 		t.Fatal("kill should destroy runtime and workspace")
 	}
+	requireNoPromptDir(t, dataDir, "mer-1")
 }
 
 // TestKill_TerminatesIncompleteHandle: a session whose runtime handle or
@@ -1356,11 +1372,16 @@ func TestRestore_RefusesIncompleteHandle(t *testing.T) {
 // outright by RollbackSpawn so the user never sees an orphan terminated row.
 func TestRollbackSpawn_DeletesSeedRow(t *testing.T) {
 	m, st, _, _ := newManager()
+	dataDir := t.TempDir()
+	m.dataDir = dataDir
 	// Seed row matches what CreateSession produces — no Metadata at all.
 	st.sessions["mer-1"] = domain.SessionRecord{
 		ID:        "mer-1",
 		ProjectID: "mer",
 		Activity:  domain.Activity{State: domain.ActivityIdle},
+	}
+	if _, err := m.writeSystemPromptFile("mer-1", "system prompt"); err != nil {
+		t.Fatal(err)
 	}
 	deleted, killed, err := m.RollbackSpawn(ctx, "mer-1")
 	if err != nil {
@@ -1372,6 +1393,7 @@ func TestRollbackSpawn_DeletesSeedRow(t *testing.T) {
 	if _, present := st.sessions["mer-1"]; present {
 		t.Fatal("seed row must be removed from the store, not left as terminated")
 	}
+	requireNoPromptDir(t, dataDir, "mer-1")
 }
 
 // TestRollbackSpawn_FallsBackToKillForLiveRow asserts the no-resurrection
@@ -1405,13 +1427,14 @@ func TestSpawn_RejectsMissingAgentBinary(t *testing.T) {
 	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
 	rt := &fakeRuntime{}
 	ws := &fakeWorkspace{}
+	dataDir := t.TempDir()
 	notFound := func(name string) (string, error) {
 		if name == "tmux" {
 			return "/bin/tmux", nil
 		}
 		return "", fmt.Errorf("exec: %q: not found", name)
 	}
-	m := New(Deps{Runtime: rt, Agents: fakeAgents{}, Workspace: ws, Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st}, LookPath: notFound})
+	m := New(Deps{Runtime: rt, Agents: fakeAgents{}, Workspace: ws, Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st}, DataDir: dataDir, LookPath: notFound})
 
 	_, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker})
 	if !errors.Is(err, ports.ErrAgentBinaryNotFound) {
@@ -1426,6 +1449,7 @@ func TestSpawn_RejectsMissingAgentBinary(t *testing.T) {
 	if rec, present := st.sessions["mer-1"]; present {
 		t.Fatalf("seed row must be deleted before a runtime handle is live, got %+v", rec)
 	}
+	requireNoPromptDir(t, dataDir, "mer-1")
 }
 
 func TestSpawn_RejectsMissingTmuxBeforeSessionRow(t *testing.T) {

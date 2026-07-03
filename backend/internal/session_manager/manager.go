@@ -386,6 +386,7 @@ func sessionPrefix(project domain.ProjectRecord) string {
 // rollbackSpawnSeedRow.
 func (m *Manager) markSpawnFailedTerminated(ctx context.Context, id domain.SessionID) {
 	_ = m.lcm.MarkTerminated(ctx, id)
+	m.cleanupSystemPromptDir(id)
 }
 
 // rollbackSpawnSeedRow best-effort removes the row of a spawn that failed
@@ -395,6 +396,7 @@ func (m *Manager) markSpawnFailedTerminated(ctx context.Context, id domain.Sessi
 // fails, fall back to parking it terminated so a phantom row never looks live.
 func (m *Manager) rollbackSpawnSeedRow(ctx context.Context, id domain.SessionID) {
 	if deleted, err := m.store.DeleteSession(ctx, id); err == nil && deleted {
+		m.cleanupSystemPromptDir(id)
 		return
 	}
 	m.markSpawnFailedTerminated(ctx, id)
@@ -417,6 +419,7 @@ func (m *Manager) rollbackSpawn(ctx context.Context, id domain.SessionID) (delet
 		return false, false, fmt.Errorf("rollback %s: %w", id, err)
 	}
 	if deleted {
+		m.cleanupSystemPromptDir(id)
 		return true, false, nil
 	}
 	killed, err = m.Kill(ctx, id)
@@ -456,6 +459,7 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	if err := m.lcm.MarkTerminated(ctx, id); err != nil {
 		return false, fmt.Errorf("kill %s: %w", id, err)
 	}
+	defer m.cleanupSystemPromptDir(id)
 
 	// Clear the restore marker so the next boot's RestoreAll cannot resurrect a
 	// killed session (#2319). Best-effort: teardown below still matters.
@@ -540,12 +544,14 @@ func (m *Manager) Restore(ctx context.Context, id domain.SessionID) (domain.Sess
 	}
 	systemPromptFile, err := m.prepareSystemPromptFile(id, rec.Harness, systemPrompt)
 	if err != nil {
+		m.cleanupSystemPromptDir(id)
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: system prompt file: %w", id, err)
 	}
 	// Restore re-applies the project's resolved agent config so a configured
 	// model/permissions carry across a restore, matching fresh spawn.
 	argv, err := restoreArgv(ctx, agent, id, ws.Path, meta, systemPrompt, systemPromptFile, effectiveAgentConfig(rec.Kind, project.Config), rec.Kind)
 	if err != nil {
+		m.cleanupSystemPromptDir(id)
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: %w", id, err)
 	}
 	handle, err := m.runtime.Create(ctx, ports.RuntimeConfig{
@@ -555,11 +561,13 @@ func (m *Manager) Restore(ctx context.Context, id domain.SessionID) (domain.Sess
 		Env:           m.runtimeEnv(id, rec.ProjectID, rec.IssueID, project.Config.Env),
 	})
 	if err != nil {
+		m.cleanupSystemPromptDir(id)
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: runtime: %w", id, err)
 	}
 	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, AgentSessionID: meta.AgentSessionID, Prompt: meta.Prompt}
 	if err := m.lcm.MarkSpawned(ctx, id, metadata); err != nil {
 		_ = m.runtime.Destroy(ctx, handle)
+		m.cleanupSystemPromptDir(id)
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: completed: %w", id, err)
 	}
 	return m.getRecord(ctx, id)
@@ -906,6 +914,7 @@ func (m *Manager) Cleanup(ctx context.Context, project domain.ProjectID) (Cleanu
 		}
 		ws := workspaceInfo(rec)
 		if ws.Path == "" {
+			m.cleanupSystemPromptDir(rec.ID)
 			continue
 		}
 		if h := runtimeHandle(rec.Metadata); h.ID != "" {
@@ -920,6 +929,7 @@ func (m *Manager) Cleanup(ctx context.Context, project domain.ProjectID) (Cleanu
 			result.Skipped = append(result.Skipped, CleanupSkip{SessionID: rec.ID, Reason: cleanupSkipReason(err)})
 			continue
 		}
+		m.cleanupSystemPromptDir(rec.ID)
 		result.Cleaned = append(result.Cleaned, rec.ID)
 	}
 	return result, nil
@@ -1089,7 +1099,7 @@ func (m *Manager) writeSystemPromptFile(id domain.SessionID, systemPrompt string
 	if systemPrompt == "" || strings.TrimSpace(m.dataDir) == "" {
 		return "", nil
 	}
-	path := filepath.Join(m.dataDir, "prompts", string(id), "system.md")
+	path := filepath.Join(m.systemPromptDir(id), "system.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
@@ -1113,6 +1123,23 @@ func (m *Manager) prepareSystemPromptFile(id domain.SessionID, harness domain.Ag
 
 func systemPromptFileRequired(harness domain.AgentHarness) bool {
 	return harness == domain.HarnessAider
+}
+
+func (m *Manager) systemPromptDir(id domain.SessionID) string {
+	if strings.TrimSpace(m.dataDir) == "" {
+		return ""
+	}
+	return filepath.Join(m.dataDir, "prompts", string(id))
+}
+
+func (m *Manager) cleanupSystemPromptDir(id domain.SessionID) {
+	dir := m.systemPromptDir(id)
+	if dir == "" {
+		return
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		m.logger.Warn("system prompt cleanup failed", "session", id, "path", dir, "err", err)
+	}
 }
 
 // spawnEnv builds the runtime environment: the per-project env vars first, then

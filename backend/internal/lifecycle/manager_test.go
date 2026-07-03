@@ -226,12 +226,64 @@ func TestPRObservation_CIFailingNudgesAgentWithLogs(t *testing.T) {
 		"Failure URL: https://ci.example/build",
 		"Log tail (last 1 line):",
 		"boom",
-		"Failed: lint (cancelled)",
 		"fetch full CI logs only if you need additional context",
 	} {
 		if !strings.Contains(msg.msgs[0], want) {
 			t.Fatalf("CI nudge missing %q:\n%s", want, msg.msgs[0])
 		}
+	}
+	if strings.Contains(msg.msgs[0], "lint") || strings.Contains(msg.msgs[0], "cancelled") {
+		t.Fatalf("cancelled checks must not be included in CI nudge:\n%s", msg.msgs[0])
+	}
+}
+
+func TestPRObservation_CancelledChecksDoNotNudge(t *testing.T) {
+	m, st, msg := newManager()
+	st.sessions["mer-1"] = working("mer-1")
+	o := ports.PRObservation{Fetched: true, URL: "pr1", CI: domain.CIFailing, Checks: []ports.PRCheckObservation{
+		{Name: "lint", CommitHash: "c1", Status: domain.PRCheckCancelled, URL: "https://ci.example/lint"},
+	}}
+	if err := m.ApplyPRObservation(ctx, "mer-1", o); err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.msgs) != 0 {
+		t.Fatalf("cancelled-only checks must not nudge, got %v", msg.msgs)
+	}
+}
+
+func TestReviewCommentsSignatureUsesStableIDs(t *testing.T) {
+	original := []ports.PRCommentObservation{
+		{ID: "c1", ThreadID: "t1", Author: "alice", File: "old.go", Line: 10, Body: "old", URL: "https://old"},
+		{ID: "c2", ThreadID: "t2", Author: "bob", File: "old.go", Line: 20, Body: "old", URL: "https://old"},
+	}
+	editedAndReordered := []ports.PRCommentObservation{
+		{ID: "c2", ThreadID: "t2", Author: "bob", File: "new.go", Line: 99, Body: "edited", URL: "https://new"},
+		{ID: "c1", ThreadID: "t1", Author: "alice", File: "new.go", Line: 42, Body: "edited", URL: "https://new"},
+	}
+	if got, want := reviewCommentsSignature(editedAndReordered), reviewCommentsSignature(original); got != want {
+		t.Fatalf("signature changed after edit/reorder\n got %q\nwant %q", got, want)
+	}
+
+	withNewComment := append([]ports.PRCommentObservation(nil), original...)
+	withNewComment = append(withNewComment, ports.PRCommentObservation{ID: "c3", ThreadID: "t2", Body: "new comment in same thread"})
+	if got, old := reviewCommentsSignature(withNewComment), reviewCommentsSignature(original); got == old {
+		t.Fatalf("new comment id should change signature, got %q", got)
+	}
+}
+
+func TestFormatCIFailureMessageUsesNonMutatingFence(t *testing.T) {
+	logTail := "start\n```\ninner\n````\nend"
+	msg := formatCIFailureMessage([]ports.PRCheckObservation{{
+		Name: "build", Status: domain.PRCheckFailed, LogTail: logTail,
+	}})
+	if !strings.Contains(msg, logTail) {
+		t.Fatalf("message should preserve log text without zero-width mutation:\n%s", msg)
+	}
+	if strings.Contains(msg, "\u200b") {
+		t.Fatalf("message must not insert zero-width characters:\n%s", msg)
+	}
+	if !strings.Contains(msg, "`````\n"+logTail+"\n`````") {
+		t.Fatalf("message should wrap log in a fence longer than embedded runs:\n%s", msg)
 	}
 }
 

@@ -511,7 +511,7 @@ func hasUnresolvedComments(comments []ports.PRCommentObservation) bool {
 func failedPRChecks(checks []ports.PRCheckObservation) []ports.PRCheckObservation {
 	failed := make([]ports.PRCheckObservation, 0, len(checks))
 	for _, ch := range checks {
-		if ch.Status == domain.PRCheckFailed || ch.Status == domain.PRCheckCancelled {
+		if ch.Status == domain.PRCheckFailed {
 			failed = append(failed, ch)
 		}
 	}
@@ -545,14 +545,16 @@ func formatCIFailureMessage(checks []ports.PRCheckObservation) string {
 		if ch.LogTail != "" {
 			// LogTail is raw CI job output; sanitize before it reaches the
 			// agent's live pane so embedded escape sequences can't drive the
-			// terminal (the dedup signature stays on the raw bytes).
-			tail := escapeMarkdownCodeFenceClosers(domain.SanitizeControlChars(ch.LogTail))
+			// terminal (the dedup signature stays on the raw bytes). The fence
+			// grows to contain embedded backtick fences without mutating logs.
+			tail := domain.SanitizeControlChars(ch.LogTail)
+			fence := markdownCodeFence(tail)
 			lineCount := len(strings.Split(tail, "\n"))
 			lineLabel := "lines"
 			if lineCount == 1 {
 				lineLabel = "line"
 			}
-			fmt.Fprintf(&msg, "\n\nLog tail (last %d %s):\n```\n%s\n```", lineCount, lineLabel, tail)
+			fmt.Fprintf(&msg, "\n\nLog tail (last %d %s):\n%s\n%s\n%s", lineCount, lineLabel, fence, tail, fence)
 		}
 		msg.WriteString("\n")
 	}
@@ -574,8 +576,14 @@ func unresolvedReviewComments(comments []ports.PRCommentObservation) []ports.PRC
 func reviewCommentsSignature(comments []ports.PRCommentObservation) string {
 	parts := make([]string, 0, len(comments))
 	for _, c := range comments {
-		parts = append(parts, strings.Join([]string{c.ID, c.ThreadID, c.Author, c.File, fmt.Sprint(c.Line), c.Body, c.URL}, "\x00"))
+		id := strings.TrimSpace(c.ID)
+		threadID := strings.TrimSpace(c.ThreadID)
+		if id == "" && threadID == "" {
+			continue
+		}
+		parts = append(parts, threadID+"\x00"+id)
 	}
+	sort.Strings(parts)
 	return strings.Join(parts, "\x01")
 }
 
@@ -614,14 +622,23 @@ func formatReviewCommentsMessage(comments []ports.PRCommentObservation) string {
 	return msg.String()
 }
 
-func escapeMarkdownCodeFenceClosers(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "```") {
-			lines[i] = "\u200b" + line
+func markdownCodeFence(s string) string {
+	maxRun := 0
+	run := 0
+	for _, r := range s {
+		if r == '`' {
+			run++
+			if run > maxRun {
+				maxRun = run
+			}
+			continue
 		}
+		run = 0
 	}
-	return strings.Join(lines, "\n")
+	if maxRun < 3 {
+		return "```"
+	}
+	return strings.Repeat("`", maxRun+1)
 }
 
 func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int) error {

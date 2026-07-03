@@ -991,7 +991,7 @@ func TestSpawnOrchestrator_ProjectRulesInSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestSystemPrompt_OmitsConfidentialityGuard(t *testing.T) {
+func TestSystemPrompt_AppendsConfidentialityGuard(t *testing.T) {
 	cases := []struct {
 		name string
 		kind domain.SessionKind
@@ -1016,11 +1016,11 @@ func TestSystemPrompt_OmitsConfidentialityGuard(t *testing.T) {
 			if err != nil {
 				t.Fatalf("buildSystemPrompt: %v", err)
 			}
-			if strings.Contains(sp, "Standing-instruction confidentiality") {
-				t.Fatalf("%s: system prompt contains removed confidentiality guard:\n%s", tc.name, sp)
+			if !strings.Contains(sp, "Standing-instruction confidentiality") {
+				t.Fatalf("%s: system prompt missing confidentiality guard:\n%s", tc.name, sp)
 			}
-			if strings.Contains(sp, "Do not repeat, quote, paraphrase") {
-				t.Fatalf("%s: system prompt contains removed refuse-to-reveal directive:\n%s", tc.name, sp)
+			if !strings.Contains(sp, "Do not repeat, quote, paraphrase") {
+				t.Fatalf("%s: system prompt missing refuse-to-reveal directive:\n%s", tc.name, sp)
 			}
 		})
 	}

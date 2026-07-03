@@ -26,6 +26,8 @@ func TestProjectConfigValidate(t *testing.T) {
 		{"good prompt rules", ProjectConfig{AgentRules: "Run tests.", AgentRulesFile: "docs/agent-rules.md", OrchestratorRules: "Delegate work."}, false},
 		{"agent rules file absolute path", ProjectConfig{AgentRulesFile: "/etc/passwd"}, true},
 		{"agent rules file parent escape", ProjectConfig{AgentRulesFile: "../rules.md"}, true},
+		{"agent rules file cleans to dot", ProjectConfig{AgentRulesFile: "docs/.."}, true},
+		{"agent rules file bare dot", ProjectConfig{AgentRulesFile: "."}, true},
 		{"good reviewers", ProjectConfig{Reviewers: []ReviewerConfig{{Harness: ReviewerClaudeCode}}}, false},
 		{"unknown reviewer harness", ProjectConfig{Reviewers: []ReviewerConfig{{Harness: "nope"}}}, true},
 		{"worker harness is not auto a reviewer", ProjectConfig{Reviewers: []ReviewerConfig{{Harness: ReviewerHarness(HarnessCodex)}}}, true},

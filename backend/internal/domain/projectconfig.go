@@ -163,7 +163,7 @@ func validateRepoRelative(p string) error {
 		return fmt.Errorf("path must be repo-relative and must not escape the project root")
 	}
 	clean := filepath.Clean(trimmed)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path must be repo-relative and must not escape the project root")
 	}
 	for _, seg := range strings.Split(filepath.ToSlash(clean), "/") {

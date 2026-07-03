@@ -241,7 +241,8 @@ func TestGetRestoreCommandReadsAgentSessionID(t *testing.T) {
 	plugin := &Plugin{resolvedBinary: "cline"}
 
 	cmd, ok, err := plugin.GetRestoreCommand(context.Background(), ports.RestoreConfig{
-		Permissions: ports.PermissionModeAuto,
+		Permissions:  ports.PermissionModeAuto,
+		SystemPrompt: "restore instructions",
 		Session: ports.SessionRef{
 			Metadata: map[string]string{ports.MetadataKeyAgentSessionID: "session-123"},
 		},
@@ -256,6 +257,7 @@ func TestGetRestoreCommandReadsAgentSessionID(t *testing.T) {
 		"cline",
 		"--json",
 		"--auto-approve", "true",
+		"-s", "restore instructions",
 		"--id", "session-123",
 	}
 	if !reflect.DeepEqual(cmd, want) {

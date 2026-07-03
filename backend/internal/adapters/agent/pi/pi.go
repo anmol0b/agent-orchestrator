@@ -146,6 +146,15 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 		return nil, false, err
 	}
 	cmd = []string{binary, "--print", "--session", agentSessionID}
+	if cfg.SystemPrompt != "" {
+		cmd = append(cmd, "--append-system-prompt", cfg.SystemPrompt)
+	} else if cfg.SystemPromptFile != "" {
+		data, err := os.ReadFile(cfg.SystemPromptFile) //nolint:gosec // path is AO-owned launch config
+		if err != nil {
+			return nil, false, err
+		}
+		cmd = append(cmd, "--append-system-prompt", string(data))
+	}
 	return cmd, true, nil
 }
 

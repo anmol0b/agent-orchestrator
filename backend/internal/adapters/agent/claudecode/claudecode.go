@@ -281,8 +281,11 @@ func claudeSessionUUID(aoSessionID string) string {
 }
 
 // resolveSystemPrompt returns the system prompt text to append, preferring
-// SystemPromptFile (read from disk) over an inline SystemPrompt.
+// inline instructions when AO has them.
 func resolveSystemPrompt(cfg ports.LaunchConfig) (string, error) {
+	if cfg.SystemPrompt != "" {
+		return cfg.SystemPrompt, nil
+	}
 	if cfg.SystemPromptFile != "" {
 		data, err := os.ReadFile(cfg.SystemPromptFile)
 		if err != nil {
@@ -290,10 +293,13 @@ func resolveSystemPrompt(cfg ports.LaunchConfig) (string, error) {
 		}
 		return strings.TrimRight(string(data), "\n"), nil
 	}
-	return cfg.SystemPrompt, nil
+	return "", nil
 }
 
 func resolveRestoreSystemPrompt(cfg ports.RestoreConfig) (string, error) {
+	if cfg.SystemPrompt != "" {
+		return cfg.SystemPrompt, nil
+	}
 	if cfg.SystemPromptFile != "" {
 		data, err := os.ReadFile(cfg.SystemPromptFile)
 		if err != nil {
@@ -301,7 +307,7 @@ func resolveRestoreSystemPrompt(cfg ports.RestoreConfig) (string, error) {
 		}
 		return strings.TrimRight(string(data), "\n"), nil
 	}
-	return cfg.SystemPrompt, nil
+	return "", nil
 }
 
 // appendPermissionFlags maps AO's permission modes onto Claude Code's

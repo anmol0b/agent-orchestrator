@@ -94,9 +94,15 @@ func TestGetLaunchCommandAppendsSystemPromptFromFile(t *testing.T) {
 }
 
 func TestGetLaunchCommandInlineSystemPrompt(t *testing.T) {
+	promptFile := filepath.Join(t.TempDir(), "system.md")
+	if err := os.WriteFile(promptFile, []byte("file ignored\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
 	p := &Plugin{resolvedBinary: "claude"}
 	cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
-		SystemPrompt: "inline instructions",
+		SystemPrompt:     "inline instructions",
+		SystemPromptFile: promptFile,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -414,7 +420,7 @@ func TestGetRestoreCommandReappendsSystemPromptFromFile(t *testing.T) {
 
 	cmd, ok, err := (&Plugin{resolvedBinary: "claude"}).GetRestoreCommand(context.Background(), ports.RestoreConfig{
 		Permissions:      ports.PermissionModeBypassPermissions,
-		SystemPrompt:     "inline ignored",
+		SystemPrompt:     "inline wins",
 		SystemPromptFile: promptFile,
 		Session: ports.SessionRef{
 			ID:       "sess-r",
@@ -424,7 +430,7 @@ func TestGetRestoreCommandReappendsSystemPromptFromFile(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("restore = (ok=%v, err=%v), want ok", ok, err)
 	}
-	want := []string{"claude", "--permission-mode", "bypassPermissions", "--append-system-prompt", "file instructions", "--resume", "claude-native-1"}
+	want := []string{"claude", "--permission-mode", "bypassPermissions", "--append-system-prompt", "inline wins", "--resume", "claude-native-1"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("restore cmd\nwant: %#v\n got: %#v", want, cmd)
 	}

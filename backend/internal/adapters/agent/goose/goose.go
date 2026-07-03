@@ -165,10 +165,11 @@ func (p *Plugin) SessionInfo(ctx context.Context, session ports.SessionRef) (por
 
 // systemPromptText returns the system instructions to inject. Goose's `--system`
 // flag takes inline text only (no file variant), so a system-prompt file is read
-// from disk and its contents inlined. A read failure is surfaced as an error so a
-// misconfigured prompt file does not silently fall back to the inline
-// SystemPrompt string; only an empty-after-trim file falls back.
+// from disk only when inline instructions are unavailable.
 func systemPromptText(cfg ports.LaunchConfig) (string, error) {
+	if cfg.SystemPrompt != "" {
+		return cfg.SystemPrompt, nil
+	}
 	if cfg.SystemPromptFile != "" {
 		data, err := os.ReadFile(cfg.SystemPromptFile) //nolint:gosec // path is AO-owned launch config
 		if err != nil {
@@ -178,7 +179,7 @@ func systemPromptText(cfg ports.LaunchConfig) (string, error) {
 			return text, nil
 		}
 	}
-	return cfg.SystemPrompt, nil
+	return "", nil
 }
 
 // gooseModeEnvPrefix renders mode as an `env GOOSE_MODE=<mode>` argv prefix, or

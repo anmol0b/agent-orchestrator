@@ -219,7 +219,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.SessionRecord{}, fmt.Errorf("spawn: create: %w", err)
 	}
 	id := rec.ID
-	systemPromptFile, err := m.writeSystemPromptFile(id, systemPrompt)
+	systemPromptFile, err := m.prepareSystemPromptFile(id, cfg.Harness, systemPrompt)
 	if err != nil {
 		m.rollbackSpawnSeedRow(ctx, id)
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: system prompt file: %w", id, err)
@@ -538,7 +538,7 @@ func (m *Manager) Restore(ctx context.Context, id domain.SessionID) (domain.Sess
 	if err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: system prompt: %w", id, err)
 	}
-	systemPromptFile, err := m.writeSystemPromptFile(id, systemPrompt)
+	systemPromptFile, err := m.prepareSystemPromptFile(id, rec.Harness, systemPrompt)
 	if err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: system prompt file: %w", id, err)
 	}
@@ -1097,6 +1097,22 @@ func (m *Manager) writeSystemPromptFile(id domain.SessionID, systemPrompt string
 		return "", err
 	}
 	return path, nil
+}
+
+func (m *Manager) prepareSystemPromptFile(id domain.SessionID, harness domain.AgentHarness, systemPrompt string) (string, error) {
+	path, err := m.writeSystemPromptFile(id, systemPrompt)
+	if err == nil || path != "" {
+		return path, err
+	}
+	if systemPromptFileRequired(harness) {
+		return "", err
+	}
+	m.logger.Warn("system prompt file unavailable; falling back to inline system prompt", "session", id, "harness", harness, "err", err)
+	return "", nil
+}
+
+func systemPromptFileRequired(harness domain.AgentHarness) bool {
+	return harness == domain.HarnessAider
 }
 
 // spawnEnv builds the runtime environment: the per-project env vars first, then

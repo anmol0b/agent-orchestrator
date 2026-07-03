@@ -113,7 +113,7 @@ func TestGetLaunchCommandAppendsSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestGetLaunchCommandInlinesSystemPromptFileContents(t *testing.T) {
+func TestGetLaunchCommandPrefersInlineSystemPrompt(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "system.md")
 	if err := os.WriteFile(file, []byte("file contents win"), 0o600); err != nil {
@@ -123,13 +123,13 @@ func TestGetLaunchCommandInlinesSystemPromptFileContents(t *testing.T) {
 	p := &Plugin{resolvedBinary: "pi"}
 	cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
 		SystemPromptFile: file,
-		SystemPrompt:     "inline ignored",
+		SystemPrompt:     "inline wins",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"pi", "--print", "--append-system-prompt", "file contents win"}
+	want := []string{"pi", "--print", "--append-system-prompt", "inline wins"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
 	}
@@ -139,7 +139,6 @@ func TestGetLaunchCommandSystemPromptFileReadError(t *testing.T) {
 	p := &Plugin{resolvedBinary: "pi"}
 	_, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
 		SystemPromptFile: filepath.Join(t.TempDir(), "missing.md"),
-		SystemPrompt:     "inline ignored",
 	})
 	if err == nil {
 		t.Fatal("expected error for unreadable system-prompt file, got nil")

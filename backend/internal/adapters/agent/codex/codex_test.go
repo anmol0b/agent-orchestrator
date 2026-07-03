@@ -45,7 +45,7 @@ func TestGetLaunchCommandBuildsCrossPlatformArgv(t *testing.T) {
 		Permissions:      ports.PermissionModeBypassPermissions,
 		Prompt:           "-fix this",
 		SystemPromptFile: filepath.Join("tmp", "prompt with spaces.md"),
-		SystemPrompt:     "ignored",
+		SystemPrompt:     "inline wins",
 		WorkspacePath:    workspace,
 	})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestGetLaunchCommandBuildsCrossPlatformArgv(t *testing.T) {
 	}
 	want = append(want,
 		"-c", `projects={`+codexTOMLConfigString(workspace)+`={trust_level="trusted"}}`,
-		"-c", "model_instructions_file="+filepath.Join("tmp", "prompt with spaces.md"),
+		"-c", "developer_instructions="+codexTOMLConfigString("inline wins"),
 		"--", "-fix this",
 	)
 	if !reflect.DeepEqual(cmd, want) {

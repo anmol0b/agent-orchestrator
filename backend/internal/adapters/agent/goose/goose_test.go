@@ -48,7 +48,7 @@ func TestGetLaunchCommandBuildsArgv(t *testing.T) {
 	}
 }
 
-func TestGetLaunchCommandSystemPromptFileInlined(t *testing.T) {
+func TestGetLaunchCommandPrefersInlineSystemPrompt(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "prompt.md")
 	if err := os.WriteFile(file, []byte("  from file  \n"), 0o600); err != nil {
@@ -58,14 +58,14 @@ func TestGetLaunchCommandSystemPromptFileInlined(t *testing.T) {
 
 	cmd, err := plugin.GetLaunchCommand(context.Background(), ports.LaunchConfig{
 		SystemPromptFile: file,
-		SystemPrompt:     "inline fallback ignored",
+		SystemPrompt:     "inline wins",
 		Prompt:           "do work",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"goose", "run", "--system", "from file", "-t", "do work"}
+	want := []string{"goose", "run", "--system", "inline wins", "-t", "do work"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
 	}

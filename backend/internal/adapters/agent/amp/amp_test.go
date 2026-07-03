@@ -116,17 +116,17 @@ func TestGetLaunchCommandAppendsSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestGetLaunchCommandPrefersSystemPromptFileFlag(t *testing.T) {
+func TestGetLaunchCommandPrefersInlineSystemPrompt(t *testing.T) {
 	p := &Plugin{resolvedBinary: "amp"}
 	cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
 		SystemPromptFile: "/tmp/system.md",
-		SystemPrompt:     "inline ignored",
+		SystemPrompt:     "inline wins",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"amp", "--append-system-prompt-file", "/tmp/system.md"}
+	want := []string{"amp", "--append-system-prompt", "inline wins"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
 	}

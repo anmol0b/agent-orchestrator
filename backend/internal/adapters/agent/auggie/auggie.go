@@ -105,10 +105,10 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	cmd = []string{binary, "--print"}
-	if cfg.SystemPromptFile != "" {
-		cmd = append(cmd, "--instruction-file", cfg.SystemPromptFile)
-	} else if cfg.SystemPrompt != "" {
+	if cfg.SystemPrompt != "" {
 		cmd = append(cmd, "--instruction", cfg.SystemPrompt)
+	} else if cfg.SystemPromptFile != "" {
+		cmd = append(cmd, "--instruction-file", cfg.SystemPromptFile)
 	}
 	if cfg.Prompt != "" {
 		cmd = append(cmd, "--", cfg.Prompt)

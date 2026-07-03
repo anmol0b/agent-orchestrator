@@ -233,6 +233,15 @@ type singleAgent struct{ agent ports.Agent }
 
 func (s singleAgent) Agent(domain.AgentHarness) (ports.Agent, bool) { return s.agent, true }
 
+func blockedDataDir(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "data")
+	if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // alwaysResumeAgent mimics Claude Code: it pins a deterministic session id, so
 // GetRestoreCommand can resume any session even with no captured agentSessionId
 // and no prompt.
@@ -831,6 +840,62 @@ func TestSpawnWorker_WritesSystemPromptFile(t *testing.T) {
 	}
 }
 
+func TestSpawnWorker_FallsBackToInlineWhenPromptFileUnavailable(t *testing.T) {
+	st := newFakeStore()
+	agent := &recordingAgent{}
+	dataDir := blockedDataDir(t)
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime:   &fakeRuntime{},
+		Agents:    singleAgent{agent: agent},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Lifecycle: &fakeLCM{store: st},
+		DataDir:   dataDir,
+		LookPath:  lookPath,
+		Logger:    slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessClaudeCode, Prompt: "do it"}); err != nil {
+		t.Fatal(err)
+	}
+	if agent.lastLaunch.SystemPrompt == "" {
+		t.Fatal("SystemPrompt is empty, want inline prompt fallback")
+	}
+	if agent.lastLaunch.SystemPromptFile != "" {
+		t.Fatalf("SystemPromptFile = %q, want empty after write failure", agent.lastLaunch.SystemPromptFile)
+	}
+}
+
+func TestSpawnWorker_PromptFileFailureBlocksFileOnlyHarness(t *testing.T) {
+	st := newFakeStore()
+	agent := &recordingAgent{}
+	dataDir := blockedDataDir(t)
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime:   &fakeRuntime{},
+		Agents:    singleAgent{agent: agent},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Lifecycle: &fakeLCM{store: st},
+		DataDir:   dataDir,
+		LookPath:  lookPath,
+	})
+
+	_, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessAider, Prompt: "do it"})
+	if err == nil {
+		t.Fatal("Spawn succeeded, want prompt-file error for file-only harness")
+	}
+	if !strings.Contains(err.Error(), "system prompt file") {
+		t.Fatalf("Spawn err = %v, want system prompt file error", err)
+	}
+	if _, ok := st.sessions["mer-1"]; ok {
+		t.Fatal("seed row still exists after prompt-file failure")
+	}
+}
+
 func TestSpawnWorker_IssueWithoutPromptGetsFallbackTaskPrompt(t *testing.T) {
 	st := newFakeStore()
 	agent := &recordingAgent{}
@@ -1059,6 +1124,67 @@ func TestRestore_OrchestratorRederivesSystemPrompt(t *testing.T) {
 	wantPath := filepath.Join(dataDir, "prompts", "mer-1", "system.md")
 	if agent.lastRestore.SystemPromptFile != wantPath {
 		t.Fatalf("restore system prompt file = %q, want %q", agent.lastRestore.SystemPromptFile, wantPath)
+	}
+}
+
+func TestRestore_FallsBackToInlineWhenPromptFileUnavailable(t *testing.T) {
+	st := newFakeStore()
+	st.sessions["mer-1"] = domain.SessionRecord{
+		ID: "mer-1", ProjectID: "mer", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode, IsTerminated: true,
+		Metadata: domain.SessionMetadata{WorkspacePath: "/ws/mer-1", Branch: "b", AgentSessionID: "agent-x"},
+	}
+	agent := &recordingAgent{}
+	dataDir := blockedDataDir(t)
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime:   &fakeRuntime{},
+		Agents:    singleAgent{agent: agent},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Lifecycle: &fakeLCM{store: st},
+		DataDir:   dataDir,
+		LookPath:  lookPath,
+		Logger:    slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	})
+
+	if _, err := m.Restore(ctx, "mer-1"); err != nil {
+		t.Fatal(err)
+	}
+	if agent.lastRestore.SystemPrompt == "" {
+		t.Fatal("SystemPrompt is empty, want inline prompt fallback")
+	}
+	if agent.lastRestore.SystemPromptFile != "" {
+		t.Fatalf("SystemPromptFile = %q, want empty after write failure", agent.lastRestore.SystemPromptFile)
+	}
+}
+
+func TestRestore_PromptFileFailureBlocksFileOnlyHarness(t *testing.T) {
+	st := newFakeStore()
+	st.sessions["mer-1"] = domain.SessionRecord{
+		ID: "mer-1", ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessAider, IsTerminated: true,
+		Metadata: domain.SessionMetadata{WorkspacePath: "/ws/mer-1", Branch: "b", AgentSessionID: "agent-x", Prompt: "do it"},
+	}
+	agent := &recordingAgent{}
+	dataDir := blockedDataDir(t)
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime:   &fakeRuntime{},
+		Agents:    singleAgent{agent: agent},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Lifecycle: &fakeLCM{store: st},
+		DataDir:   dataDir,
+		LookPath:  lookPath,
+	})
+
+	_, err := m.Restore(ctx, "mer-1")
+	if err == nil {
+		t.Fatal("Restore succeeded, want prompt-file error for file-only harness")
+	}
+	if !strings.Contains(err.Error(), "system prompt file") {
+		t.Fatalf("Restore err = %v, want system prompt file error", err)
 	}
 }
 

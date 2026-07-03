@@ -84,11 +84,11 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	appendApprovalFlags(&cmd, cfg.Permissions)
 
 	// Autohand's --sys-prompt accepts either an inline string or a file path,
-	// auto-detected by the CLI; prefer the file form when AO provides one.
-	if cfg.SystemPromptFile != "" {
-		cmd = append(cmd, "--sys-prompt", cfg.SystemPromptFile)
-	} else if cfg.SystemPrompt != "" {
+	// auto-detected by the CLI; prefer inline instructions when AO has them.
+	if cfg.SystemPrompt != "" {
 		cmd = append(cmd, "--sys-prompt", cfg.SystemPrompt)
+	} else if cfg.SystemPromptFile != "" {
+		cmd = append(cmd, "--sys-prompt", cfg.SystemPromptFile)
 	}
 
 	if cfg.Prompt != "" {

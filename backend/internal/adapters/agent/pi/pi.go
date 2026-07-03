@@ -97,14 +97,14 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	cmd = []string{binary, "--print"}
-	if cfg.SystemPromptFile != "" {
+	if cfg.SystemPrompt != "" {
+		cmd = append(cmd, "--append-system-prompt", cfg.SystemPrompt)
+	} else if cfg.SystemPromptFile != "" {
 		data, err := os.ReadFile(cfg.SystemPromptFile) //nolint:gosec // path is AO-owned launch config
 		if err != nil {
 			return nil, err
 		}
 		cmd = append(cmd, "--append-system-prompt", string(data))
-	} else if cfg.SystemPrompt != "" {
-		cmd = append(cmd, "--append-system-prompt", cfg.SystemPrompt)
 	}
 	if cfg.Prompt != "" {
 		cmd = append(cmd, cfg.Prompt)

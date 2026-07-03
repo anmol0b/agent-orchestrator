@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/hookutil"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
@@ -76,18 +77,24 @@ func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
 
 // GetLaunchCommand builds the argv to start a new headless Copilot session:
 //
-//	copilot [permission flags] [-p <prompt>]
+//	[env COPILOT_CUSTOM_INSTRUCTIONS_DIRS=<ao-dir>[,<existing>]] copilot [permission flags] [-p <prompt>]
 //
 // The prompt is delivered with `-p`, which runs the prompt in non-interactive
-// mode and exits when done. Copilot CLI does not have a documented
-// system-prompt-injection flag, so SystemPrompt/SystemPromptFile are ignored.
+// mode and exits when done. Copilot CLI custom instructions are directory-based,
+// so AO writes an AGENTS.md into the AO prompt artifact directory and points
+// COPILOT_CUSTOM_INSTRUCTIONS_DIRS at it when standing instructions are present.
 func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
 	binary, err := p.copilotBinary(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	cmd = []string{binary}
+	envPrefix, err := copilotInstructionsEnvPrefix(cfg.SystemPrompt, cfg.SystemPromptFile)
+	if err != nil {
+		return nil, err
+	}
+	cmd = envPrefix
+	cmd = append(cmd, binary)
 	appendApprovalFlags(&cmd, cfg.Permissions)
 
 	if cfg.Prompt != "" {
@@ -128,7 +135,11 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 		return nil, false, err
 	}
 
-	cmd = make([]string, 0, 8)
+	envPrefix, err := copilotInstructionsEnvPrefix(cfg.SystemPrompt, cfg.SystemPromptFile)
+	if err != nil {
+		return nil, false, err
+	}
+	cmd = envPrefix
 	cmd = append(cmd, binary)
 	appendApprovalFlags(&cmd, cfg.Permissions)
 	cmd = append(cmd, "--resume", agentSessionID)
@@ -235,6 +246,37 @@ func (p *Plugin) copilotBinary(ctx context.Context) (string, error) {
 	}
 	p.resolvedBinary = binary
 	return binary, nil
+}
+
+const copilotCustomInstructionsEnvVar = "COPILOT_CUSTOM_INSTRUCTIONS_DIRS"
+
+func copilotInstructionsEnvPrefix(inlinePrompt, promptFile string) ([]string, error) {
+	if inlinePrompt == "" && promptFile == "" {
+		return nil, nil
+	}
+	if promptFile == "" {
+		return nil, fmt.Errorf("copilot: system prompt file required to build custom instructions")
+	}
+	dir := filepath.Dir(promptFile)
+	prompt := inlinePrompt
+	if prompt == "" {
+		data, err := os.ReadFile(promptFile) //nolint:gosec // path is AO-owned launch config
+		if err != nil {
+			return nil, fmt.Errorf("copilot: read system prompt file: %w", err)
+		}
+		prompt = string(data)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("copilot: create custom instructions dir: %w", err)
+	}
+	if err := hookutil.AtomicWriteFile(filepath.Join(dir, "AGENTS.md"), []byte(strings.TrimRight(prompt, "\n")+"\n"), 0o600); err != nil {
+		return nil, fmt.Errorf("copilot: write custom instructions: %w", err)
+	}
+	value := dir
+	if existing := strings.TrimSpace(os.Getenv(copilotCustomInstructionsEnvVar)); existing != "" {
+		value += "," + existing
+	}
+	return []string{"env", copilotCustomInstructionsEnvVar + "=" + value}, nil
 }
 
 // appendApprovalFlags maps AO's 4 permission modes onto Copilot CLI approval

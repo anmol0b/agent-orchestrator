@@ -58,13 +58,13 @@ func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
 	return ports.ConfigSpec{}, nil
 }
 
-// GetLaunchCommand builds the argv to start a new interactive Amp session:
+// GetLaunchCommand builds the argv to start a new Amp session:
 //
-//	amp [--permission-mode <mode>] [--append-system-prompt <system prompt>] [-- <prompt>]
+//	amp [-x <prompt>]
 //
-// The prompt is passed after `--` so a prompt beginning with "-" is not
-// mistaken for a flag. System prompts are appended to Amp's defaults, mirroring
-// the Claude Code adapter's launch shape.
+// Amp's current CLI has no documented per-run permission or system-prompt flag.
+// When AO has an initial prompt, it is sent through execute mode (`-x`), whose
+// next argv element is the prompt text so a leading "-" is not parsed as a flag.
 func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -75,14 +75,8 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	cmd = []string{binary}
-	appendPermissionFlags(&cmd, cfg.Permissions)
-	if cfg.SystemPrompt != "" {
-		cmd = append(cmd, "--append-system-prompt", cfg.SystemPrompt)
-	} else if cfg.SystemPromptFile != "" {
-		cmd = append(cmd, "--append-system-prompt-file", cfg.SystemPromptFile)
-	}
 	if cfg.Prompt != "" {
-		cmd = append(cmd, "--", cfg.Prompt)
+		cmd = append(cmd, "-x", cfg.Prompt)
 	}
 	return cmd, nil
 }
@@ -118,16 +112,7 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 	if err != nil {
 		return nil, false, err
 	}
-	// Capacity fits binary + up to two permission flags + --resume + sessionID.
-	cmd = make([]string, 0, 5)
-	cmd = append(cmd, binary)
-	appendPermissionFlags(&cmd, cfg.Permissions)
-	if cfg.SystemPrompt != "" {
-		cmd = append(cmd, "--append-system-prompt", cfg.SystemPrompt)
-	} else if cfg.SystemPromptFile != "" {
-		cmd = append(cmd, "--append-system-prompt-file", cfg.SystemPromptFile)
-	}
-	cmd = append(cmd, "--resume", agentSessionID)
+	cmd = []string{binary, "threads", "continue", agentSessionID}
 	return cmd, true, nil
 }
 
@@ -137,17 +122,6 @@ func (p *Plugin) SessionInfo(ctx context.Context, session ports.SessionRef) (por
 		return ports.SessionInfo{}, false, err
 	}
 	return ports.SessionInfo{}, false, nil
-}
-
-func appendPermissionFlags(cmd *[]string, mode ports.PermissionMode) {
-	switch mode {
-	case ports.PermissionModeAcceptEdits:
-		*cmd = append(*cmd, "--permission-mode", "acceptEdits")
-	case ports.PermissionModeAuto:
-		*cmd = append(*cmd, "--permission-mode", "auto")
-	case ports.PermissionModeBypassPermissions:
-		*cmd = append(*cmd, "--permission-mode", "bypassPermissions")
-	}
 }
 
 // ResolveAmpBinary finds the `amp` binary, searching PATH then common install

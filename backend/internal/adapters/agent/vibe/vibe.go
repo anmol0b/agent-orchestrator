@@ -31,10 +31,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/hookutil"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
@@ -78,12 +80,13 @@ func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
 
 // GetLaunchCommand builds the argv to start a new non-interactive Vibe session:
 //
-//	vibe --trust --output text [--agent <profile>] -p <prompt>
+//	vibe --trust --output text [--agent <profile-or-ao-agent>] [--auto-approve] -p <prompt>
 //
 // The prompt is delivered through `-p` (programmatic mode), so AO uses
 // in-command delivery. `--trust` skips the trust prompt for automation and
 // `--output text` pins the output format. Vibe exposes no CLI system-prompt
-// flag (system prompts are config-driven), so SystemPrompt is not forwarded.
+// flag, so AO writes a workspace-local custom agent and selects it with --agent
+// when standing instructions are present.
 func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -93,8 +96,17 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 		return nil, err
 	}
 
+	agentName, err := vibeAgentFlag(cfg.Permissions, cfg.SystemPrompt, cfg.SystemPromptFile, cfg.WorkspacePath)
+	if err != nil {
+		return nil, err
+	}
 	cmd = []string{binary, "--trust", "--output", "text"}
-	appendAgentFlags(&cmd, cfg.Permissions)
+	if agentName != "" {
+		cmd = append(cmd, "--agent", agentName)
+		appendCustomAgentApprovalFlags(&cmd, cfg.Permissions)
+	} else {
+		appendAgentFlags(&cmd, cfg.Permissions)
+	}
 	if cfg.Prompt != "" {
 		cmd = append(cmd, "-p", cfg.Prompt)
 	}
@@ -132,9 +144,17 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 	if err != nil {
 		return nil, false, err
 	}
-	cmd = make([]string, 0, 8)
-	cmd = append(cmd, binary, "--trust", "--output", "text")
-	appendAgentFlags(&cmd, cfg.Permissions)
+	agentName, err := vibeAgentFlag(cfg.Permissions, cfg.SystemPrompt, cfg.SystemPromptFile, cfg.Session.WorkspacePath)
+	if err != nil {
+		return nil, false, err
+	}
+	cmd = []string{binary, "--trust", "--output", "text"}
+	if agentName != "" {
+		cmd = append(cmd, "--agent", agentName)
+		appendCustomAgentApprovalFlags(&cmd, cfg.Permissions)
+	} else {
+		appendAgentFlags(&cmd, cfg.Permissions)
+	}
 	cmd = append(cmd, "--resume", agentSessionID)
 	return cmd, true, nil
 }
@@ -160,6 +180,70 @@ func appendAgentFlags(cmd *[]string, mode ports.PermissionMode) {
 	case ports.PermissionModeBypassPermissions:
 		*cmd = append(*cmd, "--agent", "auto-approve")
 	}
+}
+
+func appendCustomAgentApprovalFlags(cmd *[]string, mode ports.PermissionMode) {
+	switch mode {
+	case ports.PermissionModeAuto, ports.PermissionModeBypassPermissions:
+		*cmd = append(*cmd, "--auto-approve")
+	}
+}
+
+const vibePromptAgentName = "ao-system-prompt"
+
+func vibeAgentFlag(mode ports.PermissionMode, inlinePrompt, promptFile, workspacePath string) (string, error) {
+	if inlinePrompt == "" && promptFile == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(workspacePath) == "" {
+		return "", fmt.Errorf("vibe: workspace path required to build agent config")
+	}
+	promptsDir := filepath.Join(workspacePath, ".vibe", "prompts")
+	agentsDir := filepath.Join(workspacePath, ".vibe", "agents")
+	promptText := inlinePrompt
+	if promptText == "" {
+		data, err := os.ReadFile(promptFile) //nolint:gosec // path is AO-owned launch config
+		if err != nil {
+			return "", fmt.Errorf("vibe: read system prompt file: %w", err)
+		}
+		promptText = string(data)
+	}
+	if err := os.MkdirAll(promptsDir, 0o700); err != nil {
+		return "", fmt.Errorf("vibe: create prompts dir: %w", err)
+	}
+	if err := os.MkdirAll(agentsDir, 0o700); err != nil {
+		return "", fmt.Errorf("vibe: create agents dir: %w", err)
+	}
+	if err := hookutil.AtomicWriteFile(filepath.Join(promptsDir, vibePromptAgentName+".md"), []byte(strings.TrimRight(promptText, "\n")+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("vibe: write prompt: %w", err)
+	}
+	agentConfig := vibeAgentTOML(vibePromptAgentName, mode)
+	if err := hookutil.AtomicWriteFile(filepath.Join(agentsDir, vibePromptAgentName+".toml"), []byte(agentConfig), 0o600); err != nil {
+		return "", fmt.Errorf("vibe: write agent config: %w", err)
+	}
+	if err := hookutil.EnsureWorkspaceGitignore(promptsDir, vibePromptAgentName+".md"); err != nil {
+		return "", fmt.Errorf("vibe: prompt gitignore: %w", err)
+	}
+	if err := hookutil.EnsureWorkspaceGitignore(agentsDir, vibePromptAgentName+".toml"); err != nil {
+		return "", fmt.Errorf("vibe: agent gitignore: %w", err)
+	}
+	return vibePromptAgentName, nil
+}
+
+func vibeAgentTOML(agentName string, mode ports.PermissionMode) string {
+	var b strings.Builder
+	b.WriteString(`agent_type = "agent"` + "\n")
+	b.WriteString(`display_name = "AO Session"` + "\n")
+	b.WriteString(`description = "AO session standing instructions."` + "\n")
+	b.WriteString(`safety = "neutral"` + "\n")
+	b.WriteString("system_prompt_id = ")
+	b.WriteString(strconv.Quote(agentName))
+	b.WriteString("\n")
+	if mode == ports.PermissionModeAcceptEdits {
+		b.WriteString("\n[tools.write_file]\npermission = \"always\"\n")
+		b.WriteString("\n[tools.search_replace]\npermission = \"always\"\n")
+	}
+	return b.String()
 }
 
 // ResolveVibeBinary finds the `vibe` binary, searching PATH then common install

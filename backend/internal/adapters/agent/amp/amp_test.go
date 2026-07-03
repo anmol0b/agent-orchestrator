@@ -59,64 +59,64 @@ func TestGetLaunchCommandBypassWithPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"amp", "--permission-mode", "bypassPermissions", "--", "-add a health check"}
+	want := []string{"amp", "-x", "-add a health check"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
 	}
 }
 
-func TestGetLaunchCommandMapsPermissionModes(t *testing.T) {
-	tests := []struct {
-		name       string
-		mode       ports.PermissionMode
-		want       []string
-		wantAbsent string
-	}{
-		{"default omits flag", ports.PermissionModeDefault, []string{"amp"}, "--permission-mode"},
-		{"empty omits flag", "", []string{"amp"}, "--permission-mode"},
-		{"accept edits", ports.PermissionModeAcceptEdits, []string{"amp", "--permission-mode", "acceptEdits"}, ""},
-		{"auto", ports.PermissionModeAuto, []string{"amp", "--permission-mode", "auto"}, ""},
-		{"bypass", ports.PermissionModeBypassPermissions, []string{"amp", "--permission-mode", "bypassPermissions"}, ""},
+func TestGetLaunchCommandPermissionModesEmitNoFlag(t *testing.T) {
+	modes := []ports.PermissionMode{
+		ports.PermissionModeDefault,
+		"",
+		ports.PermissionModeAcceptEdits,
+		ports.PermissionModeAuto,
+		ports.PermissionModeBypassPermissions,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
 			p := &Plugin{resolvedBinary: "amp"}
-			cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{Permissions: tt.mode})
+			cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{Permissions: mode})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(cmd, tt.want) {
-				t.Fatalf("cmd = %#v, want %#v", cmd, tt.want)
+			want := []string{"amp"}
+			if !reflect.DeepEqual(cmd, want) {
+				t.Fatalf("cmd = %#v, want %#v", cmd, want)
 			}
-			if tt.wantAbsent != "" {
-				for _, arg := range cmd {
-					if arg == tt.wantAbsent {
-						t.Fatalf("cmd = %#v unexpectedly contains %q", cmd, tt.wantAbsent)
-					}
+			for _, arg := range cmd {
+				if arg == "--permission-mode" {
+					t.Fatalf("cmd = %#v unexpectedly contains permission flag", cmd)
 				}
 			}
 		})
 	}
 }
 
-func TestGetLaunchCommandAppendsSystemPrompt(t *testing.T) {
+func TestGetLaunchCommandIgnoresSystemPrompt(t *testing.T) {
 	p := &Plugin{resolvedBinary: "amp"}
 	cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
-		SystemPrompt: "follow repo rules",
-		Prompt:       "do the thing",
+		SystemPrompt:     "follow repo rules",
+		SystemPromptFile: "/tmp/system.md",
+		Prompt:           "do the thing",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"amp", "--append-system-prompt", "follow repo rules", "--", "do the thing"}
+	want := []string{"amp", "-x", "do the thing"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
 	}
+	for _, arg := range cmd {
+		if arg == "--append-system-prompt" || arg == "--append-system-prompt-file" {
+			t.Fatalf("cmd = %#v unexpectedly contains system prompt flag", cmd)
+		}
+	}
 }
 
-func TestGetLaunchCommandPrefersInlineSystemPrompt(t *testing.T) {
+func TestGetLaunchCommandOmitsExecuteModeWithoutPrompt(t *testing.T) {
 	p := &Plugin{resolvedBinary: "amp"}
 	cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
 		SystemPromptFile: "/tmp/system.md",
@@ -126,7 +126,7 @@ func TestGetLaunchCommandPrefersInlineSystemPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"amp", "--append-system-prompt", "inline wins"}
+	want := []string{"amp"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
 	}
@@ -149,7 +149,7 @@ func TestGetRestoreCommand(t *testing.T) {
 		t.Fatal("ok=false, want true")
 	}
 
-	want := []string{"amp", "--permission-mode", "bypassPermissions", "--append-system-prompt", "restore inline wins", "--resume", "T-abc123"}
+	want := []string{"amp", "threads", "continue", "T-abc123"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
 	}

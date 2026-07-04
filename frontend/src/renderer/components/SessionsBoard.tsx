@@ -14,6 +14,12 @@ import { prDiffSummary, sessionPRDisplaySummaries } from "../lib/pr-display";
 import { cn } from "../lib/utils";
 import { PRAttentionPanel, PRStatusStrip } from "./PRSummaryDisplay";
 
+const isLinux =
+	typeof navigator !== "undefined" &&
+	((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform)
+		.toLowerCase()
+		.includes("linux");
+
 type SessionsBoardProps = {
 	/** When set, the board shows only this project's sessions. */
 	projectId?: string;
@@ -127,7 +133,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 
 	const actions = projectId ? (
 		<>
-			<NotificationCenter />
+			{isLinux ? <NotificationCenter /> : null}
 			<button
 				aria-label="New task"
 				className="dashboard-app-header__accent-btn"
@@ -148,9 +154,9 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 				{isSpawning ? "Spawning..." : orchestrator ? "Orchestrator" : "Spawn Orchestrator"}
 			</button>
 		</>
-	) : (
+	) : isLinux ? (
 		<NotificationCenter />
-	);
+	) : undefined;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-background text-foreground">

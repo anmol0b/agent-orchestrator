@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { GitBranch, LayoutDashboard, PanelRightClose, PanelRightOpen, Plus, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { NotificationCenter } from "./NotificationCenter";
 import {
 	findProjectOrchestrator,
 	isOrchestratorSession,
@@ -20,6 +21,11 @@ import { NewTaskDialog } from "./NewTaskDialog";
 import { cn } from "../lib/utils";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
+const isLinux =
+	typeof navigator !== "undefined" &&
+	((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform)
+		.toLowerCase()
+		.includes("linux");
 const dragStyle = isMac ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
 const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
@@ -69,10 +75,12 @@ export function ShellTopbar() {
 	// removed, or data still loading) shows an empty crumb — never the raw
 	// route slug. "agent-orchestrator" is the root-board crumb only.
 	const projectId = session?.workspaceId ?? params.projectId;
-	const projectLabel = session?.workspaceName ?? "";
+	const isProjectBoardRoute = !isSessionRoute && Boolean(projectId);
+	const project = projectId ? all.find((workspace) => workspace.id === projectId) : undefined;
+	const projectLabel = project?.name ?? session?.workspaceName ?? (projectId ? "" : "agent-orchestrator");
 	const orchestrator = projectId ? findProjectOrchestrator(all, projectId) : undefined;
 
-	if (!isSessionRoute) {
+	if (isLinux && !isSessionRoute) {
 		return null;
 	}
 
@@ -133,7 +141,7 @@ export function ShellTopbar() {
 	return (
 		<header className={cn("dashboard-app-header", isMac && "is-under-titlebar-nav")} style={dragStyle}>
 			<div className="session-topbar__lead">
-				{isOrchestrator ? (
+				{isSessionRoute && isOrchestrator ? (
 					<div className="topbar-project-pills-group">
 						<div className="topbar-project-line">
 							<span className="dashboard-app-header__project">{projectLabel}</span>
@@ -146,7 +154,7 @@ export function ShellTopbar() {
 							</span>
 						</div>
 					</div>
-				) : (
+				) : isSessionRoute ? (
 					<div className="session-topbar__identity">
 						<div className="session-topbar__branch">
 							<GitBranch className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -154,13 +162,18 @@ export function ShellTopbar() {
 						</div>
 						{session ? <SessionStatusPill session={session} /> : null}
 					</div>
+				) : isProjectBoardRoute ? null : (
+					<div className="topbar-project-line">
+						<span className="dashboard-app-header__project">{projectLabel}</span>
+					</div>
 				)}
 			</div>
 
 			<div className="dashboard-app-header__spacer" />
 
 			<div className="dashboard-app-header__actions">
-				{isOrchestrator ? (
+				{!isLinux ? <NotificationCenter style={noDragStyle} /> : null}
+				{isSessionRoute && isOrchestrator ? (
 					<>
 						<button
 							aria-label="New task"
@@ -187,7 +200,7 @@ export function ShellTopbar() {
 				{/* Kill control sits beside the orchestrator link for active workers —
 				    moved here from the inspector's Summary "Danger zone". */}
 				{!isOrchestrator && session && sessionIsActive(session) ? <TopbarKillButton session={session} /> : null}
-				{!isOrchestrator && (
+				{isSessionRoute && !isOrchestrator && (
 					<button
 						aria-label="Open orchestrator"
 						className="dashboard-app-header__primary-btn dashboard-app-header__primary-btn--compact"
@@ -201,7 +214,7 @@ export function ShellTopbar() {
 					</button>
 				)}
 				{/* Inspector collapse (worker sessions only — orchestrators have no rail). */}
-				{!isOrchestrator && (
+				{isSessionRoute && !isOrchestrator && (
 					<button
 						aria-label={isInspectorOpen ? "Close inspector panel" : "Open inspector panel"}
 						aria-pressed={isInspectorOpen}

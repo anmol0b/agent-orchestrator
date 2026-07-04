@@ -94,6 +94,9 @@ Covers: install health, plugin resolution, notifier connectivity, stale temp fil
 ## Windows-specific
 
 <Accordions>
+  <Accordion title="`ao start` opens a broken old dashboard with `file:///private/tmp/ao-release-0.9.5`">
+    That is a stale pre-0.10 desktop build. Upgrade `@aoagents/ao`, stop AO, then run `ao start` again so the launcher can fetch the current desktop app. If the stale app still opens, delete `%USERPROFILE%\.ao\app-state.json` and `%USERPROFILE%\.ao\staging`, then retry.
+  </Accordion>
   <Accordion title="`ao open` prints a URL instead of opening a tab">
     Expected on Windows. The iTerm2 helper only runs on macOS. Use the dashboard's built-in terminal (the printed URL takes you there).
   </Accordion>

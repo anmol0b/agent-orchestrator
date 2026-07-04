@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -116,12 +118,22 @@ func (c *commandContext) runStart(ctx context.Context, cmd *cobra.Command, opts 
 
 // resolveApp returns the path to a usable desktop bundle, or "" when none is
 // found (spec §6.2). Resolution order is fixed: marker path -> stat -> known
-// location scan. It never compares versions (invariant 5).
+// location scan. Known-broken desktop versions are treated as stale so `ao
+// start` can fetch a current app instead of relaunching a bad bundle forever.
 func (c *commandContext) resolveApp() string {
-	if p := c.markerAppPath(); p != "" && isUsableBundle(p) {
-		return p
+	marker, hasMarker := c.markerAppState()
+	var blockedPath string
+	if hasMarker {
+		if knownBrokenAppVersion(marker.Version) {
+			blockedPath = filepath.Clean(marker.AppPath)
+		} else if isUsableBundle(marker.AppPath) {
+			return marker.AppPath
+		}
 	}
 	for _, p := range appScanLocations() {
+		if blockedPath != "" && filepath.Clean(p) == blockedPath {
+			continue
+		}
 		if isUsableBundle(p) {
 			return p
 		}
@@ -133,22 +145,59 @@ func (c *commandContext) resolveApp() string {
 // tests can point the scan at a temp bundle instead of real system paths.
 var appScanLocations = knownAppLocations
 
-// markerAppPath reads ~/.ao/app-state.json and returns its recorded appPath, or
-// "" if the marker is missing/unreadable. It does not stat the path; callers do.
-func (c *commandContext) markerAppPath() string {
+// markerAppState reads ~/.ao/app-state.json and returns its recorded app state,
+// or ok=false if the marker is missing/unreadable.
+func (c *commandContext) markerAppState() (appState, bool) {
 	dir, err := aoStateDir()
 	if err != nil {
-		return ""
+		return appState{}, false
 	}
 	data, err := os.ReadFile(filepath.Join(dir, appStateFileName))
 	if err != nil {
-		return ""
+		return appState{}, false
 	}
 	var st appState
 	if err := json.Unmarshal(data, &st); err != nil {
-		return ""
+		return appState{}, false
 	}
-	return st.AppPath
+	if st.AppPath == "" {
+		return appState{}, false
+	}
+	return st, true
+}
+
+// knownBrokenAppVersion reports desktop app versions that should not be reused
+// by `ao start`. Pre-0.10.0 Next.js builds could bake the build machine's
+// absolute `file://` path into the server bundle (for example
+// /private/tmp/ao-release-0.9.5), which breaks Windows launches. Treating those
+// markers as stale forces the bootstrapper to fetch a current release.
+func knownBrokenAppVersion(version string) bool {
+	major, minor, _, ok := parseAppVersion(version)
+	if !ok {
+		return false
+	}
+	return major == 0 && minor < 10
+}
+
+func parseAppVersion(version string) (major, minor, patch int, ok bool) {
+	v := strings.TrimSpace(version)
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 2 {
+		return 0, 0, 0, false
+	}
+	nums := [3]int{}
+	for i := 0; i < len(parts) && i < len(nums); i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		nums[i] = n
+	}
+	return nums[0], nums[1], nums[2], true
 }
 
 // aoStateDir resolves the canonical ~/.ao home, honoring AO_DATA_DIR exactly as

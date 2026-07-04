@@ -20,7 +20,12 @@ import (
 // configured state dir (AO_RUN_FILE's directory).
 func writeMarker(t *testing.T, cfg testConfig, appPath string) {
 	t.Helper()
-	st := appState{SchemaVersion: 1, AppPath: appPath, InstallSource: "npm-bootstrap"}
+	writeMarkerVersion(t, cfg, appPath, "")
+}
+
+func writeMarkerVersion(t *testing.T, cfg testConfig, appPath, version string) {
+	t.Helper()
+	st := appState{SchemaVersion: 1, AppPath: appPath, Version: version, InstallSource: "npm-bootstrap"}
 	data, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +85,20 @@ func TestResolveApp_MarkerMissThenScanHit(t *testing.T) {
 	}
 }
 
+func TestResolveApp_IgnoresKnownBrokenMarkerVersion(t *testing.T) {
+	cfg := setConfigEnv(t)
+	brokenBundle := makeBundle(t, appBundleName)
+	replacementBundle := makeBundle(t, "replacement-"+appBundleName)
+	writeMarkerVersion(t, cfg, brokenBundle, "0.9.5")
+	t.Cleanup(swapScanLocations(func() []string { return []string{brokenBundle, replacementBundle} }))
+
+	c := &commandContext{deps: Deps{}.withDefaults()}
+	got := c.resolveApp()
+	if got != replacementBundle {
+		t.Fatalf("resolveApp = %q, want replacement path %q", got, replacementBundle)
+	}
+}
+
 func TestResolveApp_ScanMissReturnsEmpty(t *testing.T) {
 	setConfigEnv(t) // no marker written
 	t.Cleanup(swapScanLocations(func() []string {
@@ -90,6 +109,25 @@ func TestResolveApp_ScanMissReturnsEmpty(t *testing.T) {
 	got := c.resolveApp()
 	if got != "" {
 		t.Fatalf("resolveApp = %q, want empty", got)
+	}
+}
+
+func TestKnownBrokenAppVersion(t *testing.T) {
+	tests := map[string]bool{
+		"":                            false,
+		"bogus":                       false,
+		"0.9.5":                       true,
+		"v0.9.5":                      true,
+		"0.9.5-nightly.20260519":      true,
+		"0.10.0":                      false,
+		"0.10.2":                      false,
+		"0.10.3-nightly.202607041403": false,
+		"1.0.0":                       false,
+	}
+	for version, want := range tests {
+		if got := knownBrokenAppVersion(version); got != want {
+			t.Errorf("knownBrokenAppVersion(%q) = %v, want %v", version, got, want)
+		}
 	}
 }
 

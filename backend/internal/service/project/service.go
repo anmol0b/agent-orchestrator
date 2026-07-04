@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -252,6 +253,13 @@ func (m *Service) Add(ctx context.Context, in AddInput) (Project, error) {
 	return m.projectFromRow(row), nil
 }
 
+type repositorySetupTarget int
+
+const (
+	repositorySetupPlainFolder repositorySetupTarget = iota
+	repositorySetupUnbornRepo
+)
+
 // InitializeRepository prepares a selected folder for project registration by ensuring it has an initial Git commit.
 func (m *Service) InitializeRepository(ctx context.Context, in InitializeRepositoryInput) (InitializeRepositoryResult, error) {
 	path, err := normalizePath(in.Path)
@@ -265,18 +273,62 @@ func (m *Service) InitializeRepository(ctx context.Context, in InitializeReposit
 	m.addMu.Lock()
 	defer m.addMu.Unlock()
 
-	if !isGitRepo(path) {
+	target, err := classifyRepositorySetupTarget(ctx, path)
+	if err != nil {
+		return InitializeRepositoryResult{}, err
+	}
+
+	if target == repositorySetupPlainFolder {
 		if _, err := gitOutput(ctx, path, "init", "-b", domain.DefaultBranchName); err != nil {
 			return InitializeRepositoryResult{}, apierr.Invalid("GIT_INIT_FAILED", "Could not initialize a Git repository in this folder.", map[string]any{"error": err.Error()})
 		}
-	} else if repoHasCommit(ctx, path) {
-		return InitializeRepositoryResult{}, apierr.Conflict("PROJECT_ALREADY_INITIALIZED", "This repository already has commits.", map[string]any{"path": path})
 	}
 
+	if _, err := gitOutput(ctx, path, "add", "-A"); err != nil {
+		return InitializeRepositoryResult{}, apierr.Invalid("GIT_ADD_FAILED", "Could not stage files for the initial commit.", map[string]any{"error": err.Error()})
+	}
 	if _, err := gitOutput(ctx, path, "-c", "user.name=Agent Orchestrator", "-c", "user.email=ao@example.com", "commit", "--allow-empty", "-m", "initial commit"); err != nil {
 		return InitializeRepositoryResult{}, apierr.Invalid("INITIAL_COMMIT_FAILED", "Could not create the initial commit.", map[string]any{"error": err.Error()})
 	}
 	return InitializeRepositoryResult{Path: path}, nil
+}
+
+func classifyRepositorySetupTarget(ctx context.Context, path string) (repositorySetupTarget, error) {
+	if isBareGitRepository(ctx, path) {
+		return repositorySetupPlainFolder, apierr.Invalid("PROJECT_BARE_REPOSITORY", "Selected folder must be a non-bare Git repository or a plain folder.", map[string]any{
+			"path":         path,
+			"suggestedFix": "Use a normal checkout, or select a plain folder for AO to initialize.",
+		})
+	}
+
+	if isGitRepo(path) {
+		if repoHasCommit(ctx, path) {
+			return repositorySetupUnbornRepo, apierr.Conflict("PROJECT_ALREADY_INITIALIZED", "This repository already has commits.", map[string]any{"path": path})
+		}
+		return repositorySetupUnbornRepo, nil
+	}
+
+	if top, err := gitOutput(ctx, path, "rev-parse", "--show-toplevel"); err == nil {
+		root := normalizeGitReportedPath(path, strings.TrimSpace(top))
+		selected := comparablePath(path)
+		if !samePath(root, selected) {
+			return repositorySetupPlainFolder, apierr.Invalid("PROJECT_PATH_NOT_REPO_ROOT", "Selected folder is inside a Git repository. Select the repository root instead.", map[string]any{
+				"path":         path,
+				"repoRoot":     root,
+				"suggestedFix": "Select the repository root folder, then try again.",
+			})
+		}
+		return repositorySetupPlainFolder, apierr.Invalid("UNSUPPORTED_GIT_REPO", "Selected folder contains an unsupported Git repository layout.", map[string]any{"path": path})
+	}
+
+	if hasGitMetadata(path) {
+		return repositorySetupPlainFolder, apierr.Invalid("UNSUPPORTED_GIT_REPO", "Selected folder contains Git metadata that AO could not inspect.", map[string]any{
+			"path":         path,
+			"suggestedFix": "Repair the Git repository or select a plain folder.",
+		})
+	}
+
+	return repositorySetupPlainFolder, nil
 }
 func (m *Service) activeProjectCount(ctx context.Context) (int, error) {
 	projects, err := m.store.ListProjects(ctx)
@@ -483,6 +535,42 @@ func repoHasCommit(ctx context.Context, path string) bool {
 	_, err := gitOutput(ctx, path, "rev-parse", "--verify", "HEAD")
 	return err == nil
 }
+
+func isBareGitRepository(ctx context.Context, path string) bool {
+	out, err := gitOutput(ctx, path, "rev-parse", "--is-bare-repository")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+func hasGitMetadata(path string) bool {
+	_, err := os.Lstat(filepath.Join(path, ".git"))
+	return err == nil || !errors.Is(err, os.ErrNotExist)
+}
+
+func normalizeGitReportedPath(base, reported string) string {
+	if reported == "" {
+		return comparablePath(reported)
+	}
+	if !filepath.IsAbs(reported) {
+		reported = filepath.Join(base, reported)
+	}
+	return comparablePath(reported)
+}
+
+func comparablePath(path string) string {
+	clean := filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		clean = resolved
+	}
+	return filepath.Clean(clean)
+}
+
+func samePath(a, b string) bool {
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	return a == b
+}
+
 func isGitRepo(path string) bool {
 	cmd := aoprocess.Command("git", "-C", path, "rev-parse", "--show-toplevel")
 	out, err := cmd.Output()

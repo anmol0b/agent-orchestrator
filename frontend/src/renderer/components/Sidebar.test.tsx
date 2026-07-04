@@ -250,16 +250,10 @@ describe("Sidebar", () => {
 
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
-		expect(
-			await screen.findByText("Let Agent Orchestrator set up this repository so agents can start?"),
-		).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Yes" })).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Create and start" })).not.toBeInTheDocument();
+		await waitFor(() => expect(onInitializeProject).toHaveBeenCalledWith("/repo/new-project"));
+		expect(screen.queryByRole("button", { name: "Yes" })).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("Manual Git setup")).not.toBeInTheDocument();
 
-		await user.click(screen.getByRole("button", { name: "Yes" }));
-
-		await waitFor(() => expect(onInitializeProject).toHaveBeenCalledWith("/repo/new-project"));
 		await waitFor(() => expect(onCreateProject).toHaveBeenCalledTimes(2));
 		expect(onCreateProject).toHaveBeenLastCalledWith(
 			expect.objectContaining({
@@ -273,19 +267,17 @@ describe("Sidebar", () => {
 	it("shows repository initialization recovery for git repos with no commits", async () => {
 		const onCreateProject = vi
 			.fn()
-			.mockRejectedValueOnce(
-				codedError("This repo has no commits yet.", "PROJECT_UNBORN"),
-			) as unknown as CreateProjectHandler;
-		renderSidebar({ onCreateProject });
+			.mockRejectedValueOnce(codedError("This repo has no commits yet.", "PROJECT_UNBORN"))
+			.mockResolvedValueOnce(undefined) as unknown as CreateProjectHandler;
+		const onInitializeProject = vi.fn().mockResolvedValue(undefined) as InitializeProjectHandler;
+		renderSidebar({ onCreateProject, onInitializeProject });
 		const user = await openCreateProjectDialog("/repo/unborn");
 
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
-		expect(
-			await screen.findByText("Let Agent Orchestrator set up this repository so agents can start?"),
-		).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Yes" })).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Create and start" })).not.toBeInTheDocument();
+		await waitFor(() => expect(onInitializeProject).toHaveBeenCalledWith("/repo/unborn"));
+		await waitFor(() => expect(onCreateProject).toHaveBeenCalledTimes(2));
+		expect(screen.queryByRole("button", { name: "Yes" })).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("Manual Git setup")).not.toBeInTheDocument();
 	});
 
@@ -300,9 +292,8 @@ describe("Sidebar", () => {
 		const user = await openCreateProjectDialog();
 
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
-		await user.click(await screen.findByRole("button", { name: "Yes" }));
 
-		expect(await screen.findByText("Setup failed: git init failed")).toBeInTheDocument();
+		expect((await screen.findAllByText("Setup failed: git init failed")).length).toBeGreaterThan(0);
 	});
 
 	it("shows needs-auth agents as unavailable while keeping authorized agents selectable", async () => {

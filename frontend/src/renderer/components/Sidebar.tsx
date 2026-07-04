@@ -784,13 +784,9 @@ function CreateProjectFlow({
 	const [isChoosingPath, setIsChoosingPath] = useState(false);
 	const [isCreating, setIsCreating] = useState(false);
 	const [isInitializing, setIsInitializing] = useState(false);
-	const [recoveryCode, setRecoveryCode] = useState<"NOT_A_GIT_REPO" | "PROJECT_UNBORN" | null>(null);
-	const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
 	const choosePath = async () => {
 		setError(null);
-		setRecoveryCode(null);
-		setRecoveryError(null);
 		setIsChoosingPath(true);
 		try {
 			const path = await aoBridge.app.chooseDirectory();
@@ -805,36 +801,35 @@ function CreateProjectFlow({
 	const createProject = async (selection: CreateProjectAgentSelection) => {
 		if (!selectedPath) return;
 		setError(null);
-		setRecoveryCode(null);
-		setRecoveryError(null);
 		setIsCreating(true);
 		try {
 			await onCreateProject({ path: selectedPath, ...selection });
 			setSelectedPath(null);
 		} catch (err) {
 			const code = err instanceof Error && "code" in err ? (err.code as string | undefined) : undefined;
-			setRecoveryCode(code === "NOT_A_GIT_REPO" || code === "PROJECT_UNBORN" ? code : null);
+			if (code === "NOT_A_GIT_REPO" || code === "PROJECT_UNBORN") {
+				setIsCreating(false);
+				setIsInitializing(true);
+				try {
+					await onInitializeProject(selectedPath);
+				} catch (setupErr) {
+					setError(setupErr instanceof Error ? `Setup failed: ${setupErr.message}` : "Setup failed");
+					return;
+				} finally {
+					setIsInitializing(false);
+				}
+
+				setIsCreating(true);
+				try {
+					await onCreateProject({ path: selectedPath, ...selection });
+					setSelectedPath(null);
+				} catch (retryErr) {
+					setError(retryErr instanceof Error ? retryErr.message : "Could not add project");
+				}
+				return;
+			}
 			setError(err instanceof Error ? err.message : "Could not add project");
 		} finally {
-			setIsCreating(false);
-		}
-	};
-
-	const initializeAndCreate = async (selection: CreateProjectAgentSelection) => {
-		if (!selectedPath) return;
-		setError(null);
-		setRecoveryError(null);
-		setIsInitializing(true);
-		try {
-			await onInitializeProject(selectedPath);
-			setRecoveryCode(null);
-			setIsCreating(true);
-			await onCreateProject({ path: selectedPath, ...selection });
-			setSelectedPath(null);
-		} catch (err) {
-			setRecoveryError(err instanceof Error ? err.message : "Could not initialize repository");
-		} finally {
-			setIsInitializing(false);
 			setIsCreating(false);
 		}
 	};
@@ -857,15 +852,10 @@ function CreateProjectFlow({
 				error={error}
 				isCreating={isCreating}
 				isInitializing={isInitializing}
-				onInitialize={initializeAndCreate}
-				recoveryCode={recoveryCode}
-				recoveryError={recoveryError}
 				onOpenChange={(open) => {
 					if (!open) {
 						setSelectedPath(null);
 						setError(null);
-						setRecoveryCode(null);
-						setRecoveryError(null);
 					}
 				}}
 				onSubmit={createProject}

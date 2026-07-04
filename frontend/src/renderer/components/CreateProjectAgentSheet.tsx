@@ -20,36 +20,28 @@ export type CreateProjectAgentSelection = {
 	trackerIntake?: TrackerIntakeConfig;
 };
 
-type RecoveryCode = "NOT_A_GIT_REPO" | "PROJECT_UNBORN";
-
 const EMPTY_INTAKE: IntakeForm = { enabled: false, repo: "", assignee: "" };
 
 type CreateProjectAgentSheetProps = {
 	error?: string | null;
 	isCreating: boolean;
 	isInitializing?: boolean;
-	onInitialize?: (selection: CreateProjectAgentSelection) => Promise<void>;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (selection: CreateProjectAgentSelection) => Promise<void>;
 	open: boolean;
 	path: string | null;
-	recoveryCode?: RecoveryCode | null;
-	recoveryError?: string | null;
 };
 
-const RECOVERY_SETUP_MESSAGE = "Let Agent Orchestrator set up this repository so agents can start?";
+const SETUP_NOTE = "If this folder needs Git setup, AO will initialize it and create the first commit before starting.";
 
 export function CreateProjectAgentSheet({
 	error,
 	isCreating,
 	isInitializing = false,
-	onInitialize,
 	onOpenChange,
 	onSubmit,
 	open,
 	path,
-	recoveryCode,
-	recoveryError,
 }: CreateProjectAgentSheetProps) {
 	const queryClient = useQueryClient();
 	const agentsQuery = useQuery({
@@ -73,11 +65,9 @@ export function CreateProjectAgentSheet({
 	const [workerAgent, setWorkerAgent] = useState("");
 	const [orchestratorAgent, setOrchestratorAgent] = useState("");
 	const isBusy = isCreating || isInitializing;
-	const hasRecovery = Boolean(recoveryCode);
 	const [intake, setIntake] = useState<IntakeForm>(EMPTY_INTAKE);
 	const intakeIncomplete = intakeNeedsRule(intake);
 	const canSubmit = workerAgent !== "" && orchestratorAgent !== "" && !intakeIncomplete && !isBusy && !isLoadingAgents;
-	const canInitialize = Boolean(canSubmit && recoveryCode && onInitialize);
 
 	useEffect(() => {
 		if (!open) {
@@ -115,12 +105,6 @@ export function CreateProjectAgentSheet({
 						aria-busy={isBusy || undefined}
 						onSubmit={(event) => {
 							event.preventDefault();
-							if (hasRecovery) {
-								if (canInitialize) {
-									void onInitialize?.({ workerAgent, orchestratorAgent, trackerIntake: buildIntake(intake) });
-								}
-								return;
-							}
 							if (!canSubmit) return;
 							void onSubmit({ workerAgent, orchestratorAgent, trackerIntake: buildIntake(intake) });
 						}}
@@ -189,16 +173,11 @@ export function CreateProjectAgentSheet({
 							<IntakeFields form={intake} onChange={(patch) => setIntake((f) => ({ ...f, ...patch }))} compact />
 						</div>
 
-						{hasRecovery ? (
-							<div className="space-y-3 rounded-md border border-border bg-surface/70 px-3 py-3 text-[12px] leading-5">
-								<p className="font-medium text-foreground">{RECOVERY_SETUP_MESSAGE}</p>
-								{recoveryError ? (
-									<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive">
-										Setup failed: {recoveryError}
-									</div>
-								) : null}
-							</div>
-						) : error ? (
+						<div className="rounded-md border border-border bg-surface/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">
+							{SETUP_NOTE}
+						</div>
+
+						{error ? (
 							<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
 								{error}
 							</div>
@@ -208,20 +187,9 @@ export function CreateProjectAgentSheet({
 							<Button type="button" variant="ghost" disabled={isBusy} onClick={() => onOpenChange(false)}>
 								Cancel
 							</Button>
-							{!hasRecovery ? (
-								<Button type="submit" variant="primary" disabled={!canSubmit}>
-									{isCreating ? "Creating..." : "Create and start"}
-								</Button>
-							) : (
-								<Button
-									type="submit"
-									variant="primary"
-									disabled={!canInitialize}
-									aria-busy={isInitializing || undefined}
-								>
-									Yes
-								</Button>
-							)}
+							<Button type="submit" variant="primary" disabled={!canSubmit}>
+								{isInitializing ? "Setting up..." : isCreating ? "Creating..." : "Create and start"}
+							</Button>
 						</div>
 					</form>
 				</Dialog.Content>

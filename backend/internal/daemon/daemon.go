@@ -133,10 +133,16 @@ func Run() error {
 	}
 	lcStack.trackerDone = startTrackerIntake(ctx, store, sessionSvc, tracker, log)
 	previewDone := preview.NewPoller(store, sessionSvc, "http://"+cfg.Addr(), preview.PollerConfig{Logger: log}).Start(ctx)
+	agentSvc := agentsvc.New()
+	go func() {
+		if _, err := agentSvc.Refresh(ctx); err != nil {
+			log.Warn("initial agent catalog refresh failed", "err", err)
+		}
+	}()
 
 	srv, err := httpd.NewWithDeps(cfg, log, termMgr, httpd.APIDeps{
 		Projects:           projectsvc.NewWithDeps(projectsvc.Deps{Store: store, Sessions: sessionSvc, DefaultHarness: domain.AgentHarness(cfg.Agent), Telemetry: telemetrySink}),
-		Agents:             agentsvc.New(),
+		Agents:             agentSvc,
 		Sessions:           sessionSvc,
 		Reviews:            reviewSvc,
 		Notifications:      notifier,

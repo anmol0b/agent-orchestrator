@@ -28,14 +28,14 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/agentbase"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/binaryutil"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/hookutil"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
@@ -45,6 +45,7 @@ const adapterID = "vibe"
 // Plugin is the Mistral Vibe agent adapter. It is safe for concurrent use; the
 // binary path is resolved once and cached under binaryMu.
 type Plugin struct {
+	agentbase.Base
 	binaryMu       sync.Mutex
 	resolvedBinary string
 }
@@ -68,14 +69,6 @@ func (p *Plugin) Manifest() adapters.Manifest {
 			adapters.CapabilityAgent,
 		},
 	}
-}
-
-// GetConfigSpec reports no agent-specific config keys yet.
-func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
-	if err := ctx.Err(); err != nil {
-		return ports.ConfigSpec{}, err
-	}
-	return ports.ConfigSpec{}, nil
 }
 
 // GetLaunchCommand builds the argv to start a new non-interactive Vibe session:
@@ -116,21 +109,6 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	return cmd, nil
 }
 
-// GetPromptDeliveryStrategy reports that Vibe receives its prompt in the launch
-// command itself.
-func (p *Plugin) GetPromptDeliveryStrategy(ctx context.Context, cfg ports.LaunchConfig) (ports.PromptDeliveryStrategy, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return ports.PromptDeliveryInCommand, nil
-}
-
-// GetAgentHooks is intentionally a no-op: Vibe has no usable lifecycle-hook
-// surface for AO activity reporting (Tier C).
-func (p *Plugin) GetAgentHooks(ctx context.Context, cfg ports.WorkspaceHookConfig) error {
-	return ctx.Err()
-}
-
 // GetRestoreCommand rebuilds the argv that continues an existing Vibe session
 // when a native session id is available in metadata. Without it, ok is false
 // and callers fall back to fresh launch behavior.
@@ -163,15 +141,8 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 	return cmd, true, nil
 }
 
-// SessionInfo is intentionally a no-op until Vibe can surface native session
-// metadata to AO.
-func (p *Plugin) SessionInfo(ctx context.Context, session ports.SessionRef) (ports.SessionInfo, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return ports.SessionInfo{}, false, err
-	}
-	return ports.SessionInfo{}, false, nil
-}
-
+// appendWorkdirFlag adds Vibe's explicit `--workdir` flag. Vibe validates its
+// own working directory in addition to the process cwd AO sets.
 func appendWorkdirFlag(cmd *[]string, workspacePath string) {
 	if workspacePath != "" {
 		*cmd = append(*cmd, "--workdir", workspacePath)
@@ -182,7 +153,7 @@ func appendWorkdirFlag(cmd *[]string, workspacePath string) {
 // profiles. PermissionModeDefault (and the empty mode) emit no flag so Vibe
 // resolves its starting agent from the user's `default_agent` config.
 func appendAgentFlags(cmd *[]string, mode ports.PermissionMode) {
-	switch mode {
+	switch ports.NormalizePermissionMode(mode) {
 	case ports.PermissionModeAcceptEdits:
 		*cmd = append(*cmd, "--agent", "accept-edits")
 	case ports.PermissionModeAuto:
@@ -193,7 +164,7 @@ func appendAgentFlags(cmd *[]string, mode ports.PermissionMode) {
 }
 
 func appendCustomAgentApprovalFlags(cmd *[]string, mode ports.PermissionMode) {
-	switch mode {
+	switch ports.NormalizePermissionMode(mode) {
 	case ports.PermissionModeAuto, ports.PermissionModeBypassPermissions:
 		*cmd = append(*cmd, "--auto-approve")
 	}
@@ -256,70 +227,22 @@ func vibeAgentTOML(agentName string, mode ports.PermissionMode) string {
 	return b.String()
 }
 
+var vibeBinarySpec = binaryutil.BinarySpec{
+	Label:         "vibe",
+	Names:         []string{"vibe"},
+	WinNames:      []string{"vibe.exe", "vibe.cmd", "vibe"},
+	UnixPaths:     []string{"/usr/local/bin/vibe", "/opt/homebrew/bin/vibe"},
+	UnixHomePaths: [][]string{{".local", "bin", "vibe"}, {".local", "share", "uv", "tools", "mistral-vibe", "bin", "vibe"}},
+	WinPaths: []binaryutil.WinPath{
+		{Base: binaryutil.WinAppData, Parts: []string{"Python", "Scripts", "vibe.exe"}},
+		{Base: binaryutil.WinLocalAppData, Parts: []string{"uv", "tools", "mistral-vibe", "Scripts", "vibe.exe"}},
+	},
+}
+
 // ResolveVibeBinary finds the `vibe` binary, searching PATH then common install
-// locations. It returns "vibe" as a last resort so callers get the shell's
-// normal command-not-found behavior if Vibe is absent.
+// locations. It returns a wrapped ports.ErrAgentBinaryNotFound when Vibe is absent.
 func ResolveVibeBinary(ctx context.Context) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-
-	if runtime.GOOS == "windows" {
-		for _, name := range []string{"vibe.exe", "vibe.cmd", "vibe"} {
-			if path, err := exec.LookPath(name); err == nil && path != "" {
-				return path, nil
-			}
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
-		candidates := []string{}
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			candidates = append(candidates,
-				filepath.Join(appData, "Python", "Scripts", "vibe.exe"),
-			)
-		}
-		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-			candidates = append(candidates,
-				filepath.Join(localAppData, "uv", "tools", "mistral-vibe", "Scripts", "vibe.exe"),
-			)
-		}
-		for _, candidate := range candidates {
-			if fileExists(candidate) {
-				return candidate, nil
-			}
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
-		return "", fmt.Errorf("vibe: %w", ports.ErrAgentBinaryNotFound)
-	}
-
-	if path, err := exec.LookPath("vibe"); err == nil && path != "" {
-		return path, nil
-	}
-
-	candidates := []string{
-		"/usr/local/bin/vibe",
-		"/opt/homebrew/bin/vibe",
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates,
-			filepath.Join(home, ".local", "bin", "vibe"),
-			filepath.Join(home, ".local", "share", "uv", "tools", "mistral-vibe", "bin", "vibe"),
-		)
-	}
-
-	for _, candidate := range candidates {
-		if fileExists(candidate) {
-			return candidate, nil
-		}
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-	}
-
-	return "", fmt.Errorf("vibe: %w", ports.ErrAgentBinaryNotFound)
+	return binaryutil.ResolveBinary(ctx, vibeBinarySpec)
 }
 
 func (p *Plugin) vibeBinary(ctx context.Context) (string, error) {
@@ -336,9 +259,4 @@ func (p *Plugin) vibeBinary(ctx context.Context) (string, error) {
 	}
 	p.resolvedBinary = binary
 	return binary, nil
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }

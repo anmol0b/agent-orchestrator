@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/activitystate"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
@@ -119,7 +120,7 @@ func TestGetLaunchCommandMapsPermissionModes(t *testing.T) {
 }
 
 func TestGetPromptDeliveryStrategyIsInCommand(t *testing.T) {
-	plugin := &Plugin{resolvedBinary: "kilocode"}
+	plugin := &Plugin{}
 
 	got, err := plugin.GetPromptDeliveryStrategy(context.Background(), ports.LaunchConfig{})
 	if err != nil {
@@ -131,7 +132,7 @@ func TestGetPromptDeliveryStrategyIsInCommand(t *testing.T) {
 }
 
 func TestGetConfigSpecHasNoCustomFieldsYet(t *testing.T) {
-	plugin := &Plugin{resolvedBinary: "kilocode"}
+	plugin := &Plugin{}
 
 	spec, err := plugin.GetConfigSpec(context.Background())
 	if err != nil {
@@ -402,8 +403,8 @@ func TestSessionInfoReadsHookMetadata(t *testing.T) {
 		WorkspacePath: "/some/path",
 		Metadata: map[string]string{
 			ports.MetadataKeyAgentSessionID: "ses_abc123",
-			kilocodeTitleMetadataKey:        "Fix login redirect",
-			kilocodeSummaryMetadataKey:      "Updated the auth callback and tests.",
+			ports.MetadataKeyTitle:          "Fix login redirect",
+			ports.MetadataKeySummary:        "Updated the auth callback and tests.",
 			"ignored":                       "not returned",
 		},
 	})
@@ -460,9 +461,9 @@ func TestDeriveActivityState(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.event, func(t *testing.T) {
-			state, ok := DeriveActivityState(tc.event, nil)
+			state, ok := activitystate.StandardDeriveActivityState(tc.event, nil)
 			if state != tc.wantState || ok != tc.wantOK {
-				t.Fatalf("DeriveActivityState(%q) = (%q, %v), want (%q, %v)", tc.event, state, ok, tc.wantState, tc.wantOK)
+				t.Fatalf("StandardDeriveActivityState(%q) = (%q, %v), want (%q, %v)", tc.event, state, ok, tc.wantState, tc.wantOK)
 			}
 		})
 	}

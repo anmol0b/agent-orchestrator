@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/agentbase"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/hookutil"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 
@@ -40,17 +41,18 @@ const (
 	// `ao spawn --agent`. It matches domain.HarnessOpenCode.
 	adapterID = "opencode"
 
-	// Normalized session-metadata keys the opencode plugin persists into the AO
-	// session store and SessionInfo reads back. Shared vocabulary with the Codex
-	// and Claude Code adapters so the dashboard treats every agent uniformly.
+	// opencodeAgentSessionIDMetadataKey is the session-metadata key the opencode
+	// plugin persists the native session id under. GetRestoreCommand reads it back
+	// to resume an existing session. SessionInfo delegates to
+	// agentbase.StandardSessionInfo which reads ports.MetadataKeyAgentSessionID
+	// (same value), but GetRestoreCommand reads it directly, so the const stays.
 	opencodeAgentSessionIDMetadataKey = "agentSessionId"
-	opencodeTitleMetadataKey          = "title"
-	opencodeSummaryMetadataKey        = "summary"
 )
 
 // Plugin is the opencode agent adapter. It is safe for concurrent use; the
 // binary path is resolved once and cached under binaryMu.
 type Plugin struct {
+	agentbase.Base
 	binaryMu       sync.Mutex
 	resolvedBinary string
 }
@@ -75,16 +77,6 @@ func (p *Plugin) Manifest() adapters.Manifest {
 			adapters.CapabilityAgent,
 		},
 	}
-}
-
-// GetConfigSpec reports the agent-specific config keys. opencode exposes none
-// yet: model and agent selection are read from opencode's own config
-// (opencode.json / ~/.config/opencode), exactly as a normal launch.
-func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
-	if err := ctx.Err(); err != nil {
-		return ports.ConfigSpec{}, err
-	}
-	return ports.ConfigSpec{}, nil
 }
 
 // GetLaunchCommand builds the argv to start a new interactive opencode session.
@@ -117,15 +109,6 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 		cmd = append(cmd, "--prompt", cfg.Prompt)
 	}
 	return cmd, nil
-}
-
-// GetPromptDeliveryStrategy reports that opencode receives its prompt in the
-// launch command itself (via --prompt).
-func (p *Plugin) GetPromptDeliveryStrategy(ctx context.Context, cfg ports.LaunchConfig) (ports.PromptDeliveryStrategy, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return ports.PromptDeliveryInCommand, nil
 }
 
 // GetRestoreCommand rebuilds the argv that continues an existing opencode
@@ -169,15 +152,8 @@ func (p *Plugin) SessionInfo(ctx context.Context, session ports.SessionRef) (por
 	if err := ctx.Err(); err != nil {
 		return ports.SessionInfo{}, false, err
 	}
-	info := ports.SessionInfo{
-		AgentSessionID: session.Metadata[opencodeAgentSessionIDMetadataKey],
-		Title:          session.Metadata[opencodeTitleMetadataKey],
-		Summary:        session.Metadata[opencodeSummaryMetadataKey],
-	}
-	if info.AgentSessionID == "" && info.Title == "" && info.Summary == "" {
-		return ports.SessionInfo{}, false, nil
-	}
-	return info, true, nil
+	info, ok := agentbase.StandardSessionInfo(session)
+	return info, ok, nil
 }
 
 // AuthStatus checks whether opencode has at least one configured provider
@@ -368,7 +344,7 @@ func opencodeDBCount(ctx context.Context, db *sql.DB, query string) (int, error)
 //   - default / accept-edits / auto → no flag. opencode resolves approvals from
 //     its own `permission` config exactly as a normal launch.
 func appendPermissionFlags(cmd *[]string, permissions ports.PermissionMode) {
-	if normalizePermissionMode(permissions) == ports.PermissionModeBypassPermissions {
+	if ports.NormalizePermissionMode(permissions) == ports.PermissionModeBypassPermissions {
 		*cmd = append(*cmd, "--dangerously-skip-permissions")
 	}
 }
@@ -448,19 +424,6 @@ func opencodeAOAgentName(sessionID string) string {
 	return "ao-" + name
 }
 
-func normalizePermissionMode(mode ports.PermissionMode) ports.PermissionMode {
-	switch mode {
-	case ports.PermissionModeDefault,
-		ports.PermissionModeAcceptEdits,
-		ports.PermissionModeAuto,
-		ports.PermissionModeBypassPermissions:
-		return mode
-	default:
-		// Empty or unrecognized: defer to opencode's own config (no flag).
-		return ports.PermissionModeDefault
-	}
-}
-
 // ResolveOpenCodeBinary returns the path to the opencode binary on this machine,
 // searching PATH then a handful of well-known install locations (the install
 // script's ~/.opencode/bin, Homebrew, npm global).
@@ -483,7 +446,7 @@ func ResolveOpenCodeBinary(ctx context.Context) (string, error) {
 			)
 		}
 		for _, candidate := range candidates {
-			if fileExists(candidate) {
+			if hookutil.FileExists(candidate) {
 				return candidate, nil
 			}
 		}
@@ -506,7 +469,7 @@ func ResolveOpenCodeBinary(ctx context.Context) (string, error) {
 	}
 
 	for _, candidate := range candidates {
-		if fileExists(candidate) {
+		if hookutil.FileExists(candidate) {
 			return candidate, nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -531,9 +494,4 @@ func (p *Plugin) opencodeBinary(ctx context.Context) (string, error) {
 	}
 	p.resolvedBinary = binary
 	return binary, nil
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }

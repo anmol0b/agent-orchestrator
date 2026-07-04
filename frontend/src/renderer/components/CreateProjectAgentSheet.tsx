@@ -1,18 +1,28 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
-import { GitBranch, Info, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { TriangleAlert, X } from "lucide-react";
+import { memo, useEffect, useState } from "react";
+import type { components } from "../../api/schema";
+import { agentsQueryKey, agentsQueryOptions, refreshAgents } from "../hooks/useAgentsQuery";
 import { AGENT_OPTIONS } from "../lib/agent-options";
+import { buildIntake, type IntakeForm, IntakeFields, intakeNeedsRule } from "./IntakeFields";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+type TrackerIntakeConfig = components["schemas"]["TrackerIntakeConfig"];
+
+type AgentInfo = components["schemas"]["AgentInfo"];
 
 export type CreateProjectAgentSelection = {
 	workerAgent: string;
 	orchestratorAgent: string;
+	trackerIntake?: TrackerIntakeConfig;
 };
 
 type RecoveryCode = "NOT_A_GIT_REPO" | "PROJECT_UNBORN";
+
+const EMPTY_INTAKE: IntakeForm = { enabled: false, repo: "", assignee: "" };
 
 type CreateProjectAgentSheetProps = {
 	error?: string | null;
@@ -24,30 +34,10 @@ type CreateProjectAgentSheetProps = {
 	open: boolean;
 	path: string | null;
 	recoveryCode?: RecoveryCode | null;
+	recoveryError?: string | null;
 };
 
-const RECOVERY_COPY = {
-	NOT_A_GIT_REPO: {
-		title: "Set up Git to continue",
-		description: "AO will initialize Git in this folder, create an empty initial commit, then continue automatically.",
-		action: "Initialize Git and create commit",
-		pending: "Setting up repository...",
-		steps: ["Run git init", "Create an empty initial commit", "Start the project"],
-	},
-	PROJECT_UNBORN: {
-		title: "Create the first commit to continue",
-		description:
-			"This folder is already a Git repository, but it does not have a commit yet. AO will create an empty initial commit, then continue automatically.",
-		action: "Create initial commit",
-		pending: "Creating commit...",
-		steps: ["Create an empty initial commit", "Verify the repository", "Start the project"],
-	},
-} satisfies Record<
-	RecoveryCode,
-	{ title: string; description: string; action: string; pending: string; steps: string[] }
->;
-
-const RECOVERY_MESSAGE = "AO needs a Git repository with an initial commit before it can create agent workspaces.";
+const RECOVERY_SETUP_MESSAGE = "Let Agent Orchestrator set up this repository so agents can start?";
 
 export function CreateProjectAgentSheet({
 	error,
@@ -59,20 +49,41 @@ export function CreateProjectAgentSheet({
 	open,
 	path,
 	recoveryCode,
+	recoveryError,
 }: CreateProjectAgentSheetProps) {
+	const queryClient = useQueryClient();
+	const agentsQuery = useQuery({
+		...agentsQueryOptions,
+		enabled: open,
+	});
+	const refreshAgentsMutation = useMutation({
+		mutationFn: refreshAgents,
+		onSuccess: (next) => queryClient.setQueryData(agentsQueryKey, next),
+	});
+	const agents = agentsQuery.data;
+	const installedAgents = agents?.installed ?? [];
+	const agentOptions = agents?.authorized ?? [];
+	const supportedAgents = agents?.supported ?? [];
+	const isLoadingAgents = agents === undefined && agentsQuery.isFetching;
+	const agentsError = agentsQuery.isError
+		? agentsQuery.error instanceof Error
+			? agentsQuery.error.message
+			: "Could not load agent catalog."
+		: null;
 	const [workerAgent, setWorkerAgent] = useState("");
 	const [orchestratorAgent, setOrchestratorAgent] = useState("");
 	const isBusy = isCreating || isInitializing;
-	const hasRecovery = Boolean(error && recoveryCode);
-	const canSubmit = workerAgent !== "" && orchestratorAgent !== "" && !isBusy;
+	const hasRecovery = Boolean(recoveryCode);
+	const [intake, setIntake] = useState<IntakeForm>(EMPTY_INTAKE);
+	const intakeIncomplete = intakeNeedsRule(intake);
+	const canSubmit = workerAgent !== "" && orchestratorAgent !== "" && !intakeIncomplete && !isBusy && !isLoadingAgents;
 	const canInitialize = Boolean(canSubmit && recoveryCode && onInitialize);
-	const recovery = recoveryCode ? RECOVERY_COPY[recoveryCode] : null;
-	const showRecoveryFailure = Boolean(error && recoveryCode && error !== RECOVERY_MESSAGE);
 
 	useEffect(() => {
 		if (!open) {
 			setWorkerAgent("");
 			setOrchestratorAgent("");
+			setIntake(EMPTY_INTAKE);
 		}
 	}, [open, path]);
 
@@ -105,11 +116,13 @@ export function CreateProjectAgentSheet({
 						onSubmit={(event) => {
 							event.preventDefault();
 							if (hasRecovery) {
-								if (canInitialize) void onInitialize?.({ workerAgent, orchestratorAgent });
+								if (canInitialize) {
+									void onInitialize?.({ workerAgent, orchestratorAgent, trackerIntake: buildIntake(intake) });
+								}
 								return;
 							}
 							if (!canSubmit) return;
-							void onSubmit({ workerAgent, orchestratorAgent });
+							void onSubmit({ workerAgent, orchestratorAgent, trackerIntake: buildIntake(intake) });
 						}}
 					>
 						<div className="grid gap-3 sm:grid-cols-2">
@@ -118,6 +131,10 @@ export function CreateProjectAgentSheet({
 								label="Worker agent"
 								placeholder="Select worker agent"
 								value={workerAgent}
+								authorized={agentOptions}
+								installed={installedAgents}
+								supported={supportedAgents}
+								disabled={isLoadingAgents}
 								onChange={setWorkerAgent}
 							/>
 							<RequiredAgentField
@@ -125,71 +142,61 @@ export function CreateProjectAgentSheet({
 								label="Orchestrator agent"
 								placeholder="Select orchestrator agent"
 								value={orchestratorAgent}
+								authorized={agentOptions}
+								installed={installedAgents}
+								supported={supportedAgents}
+								disabled={isLoadingAgents}
 								onChange={setOrchestratorAgent}
 							/>
 						</div>
 
-						{error && recoveryCode && recovery ? (
-							<div className="rounded-md border border-border bg-surface/80 p-3 text-[12px] leading-5">
-								<div className="flex gap-3">
-									<div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-border bg-background text-foreground">
-										<GitBranch className="size-4" aria-hidden="true" />
+						{isLoadingAgents && <p className="text-[12px] leading-5 text-muted-foreground">Loading agents...</p>}
+
+						<div className="flex items-center justify-between gap-3 text-[12px] leading-5 text-muted-foreground">
+							<span>Agent availability is cached.</span>
+							<button
+								type="button"
+								className="shrink-0 rounded text-foreground underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+								disabled={refreshAgentsMutation.isPending}
+								onClick={() => refreshAgentsMutation.mutate()}
+							>
+								{refreshAgentsMutation.isPending ? "Refreshing..." : "Refresh agents"}
+							</button>
+						</div>
+
+						{agentsError && (
+							<div className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
+								<span>{agentsError}</span>
+								<button
+									type="button"
+									className="shrink-0 rounded text-foreground underline-offset-2 hover:underline"
+									onClick={() => refreshAgentsMutation.mutate()}
+								>
+									Retry
+								</button>
+							</div>
+						)}
+
+						{refreshAgentsMutation.isError && (
+							<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
+								{refreshAgentsMutation.error instanceof Error
+									? refreshAgentsMutation.error.message
+									: "Could not refresh agent catalog."}
+							</div>
+						)}
+
+						<div className="border-t border-border pt-4">
+							<IntakeFields form={intake} onChange={(patch) => setIntake((f) => ({ ...f, ...patch }))} compact />
+						</div>
+
+						{hasRecovery ? (
+							<div className="space-y-3 rounded-md border border-border bg-surface/70 px-3 py-3 text-[12px] leading-5">
+								<p className="font-medium text-foreground">{RECOVERY_SETUP_MESSAGE}</p>
+								{recoveryError ? (
+									<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive">
+										Setup failed: {recoveryError}
 									</div>
-									<div className="min-w-0 flex-1 space-y-3">
-										<div className="flex items-start justify-between gap-3">
-											<div className="space-y-1">
-												<p className="font-medium text-foreground">{recovery.title}</p>
-												<p className="text-muted-foreground">{recovery.description}</p>
-											</div>
-											<Tooltip>
-												<TooltipTrigger asChild>
-													<button
-														aria-label="Manual Git setup"
-														className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-interactive-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-														type="button"
-													>
-														<Info className="size-4" aria-hidden="true" />
-													</button>
-												</TooltipTrigger>
-												<TooltipContent className="max-w-[300px] text-[11px] leading-5">
-													<div className="space-y-1.5">
-														<p>Prefer to do it yourself?</p>
-														{recoveryCode === "NOT_A_GIT_REPO" ? <code className="block">git init</code> : null}
-														<code className="block">git commit --allow-empty -m "initial commit"</code>
-														<p>Then try adding the project again.</p>
-													</div>
-												</TooltipContent>
-											</Tooltip>
-										</div>
-
-										<div className="grid gap-1.5 text-[11px] text-muted-foreground">
-											{recovery.steps.map((step, index) => (
-												<div key={step} className="flex items-center gap-2">
-													<span className="grid size-4 shrink-0 place-items-center rounded-full bg-background text-[10px] text-passive">
-														{index + 1}
-													</span>
-													<span>{step}</span>
-												</div>
-											))}
-										</div>
-
-										{showRecoveryFailure ? (
-											<div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-destructive">
-												Setup failed: {error}
-											</div>
-										) : null}
-
-										<Button
-											type="button"
-											variant="primary"
-											className="w-full transition-[transform,opacity] active:scale-[0.98]"
-											disabled={!canInitialize}
-											onClick={() => void onInitialize?.({ workerAgent, orchestratorAgent })}
-										>
-											{isInitializing ? recovery.pending : recovery.action}
-										</Button>
-									</div>
-								</div>
+								) : null}
 							</div>
 						) : error ? (
 							<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
@@ -205,7 +212,16 @@ export function CreateProjectAgentSheet({
 								<Button type="submit" variant="primary" disabled={!canSubmit}>
 									{isCreating ? "Creating..." : "Create and start"}
 								</Button>
-							) : null}
+							) : (
+								<Button
+									type="submit"
+									variant="primary"
+									disabled={!canInitialize}
+									aria-busy={isInitializing || undefined}
+								>
+									Yes
+								</Button>
+							)}
 						</div>
 					</form>
 				</Dialog.Content>
@@ -214,38 +230,83 @@ export function CreateProjectAgentSheet({
 	);
 }
 
-export function RequiredAgentField({
+export const RequiredAgentField = memo(function RequiredAgentField({
+	authorized,
+	disabled = false,
 	id,
 	invalid = false,
+	installed,
 	label,
 	onChange,
 	placeholder,
+	supported,
 	value,
 }: {
+	authorized?: AgentInfo[];
+	disabled?: boolean;
 	id: string;
 	invalid?: boolean;
+	installed?: AgentInfo[];
 	label: string;
 	onChange: (value: string) => void;
 	placeholder: string;
+	supported?: AgentInfo[];
 	value: string;
 }) {
+	const fallbackAgents: AgentInfo[] = AGENT_OPTIONS.map((agent) => ({ id: agent, label: agent }));
+	const supportedAgents = supported ?? fallbackAgents;
+	const installedAgents = installed ?? supportedAgents;
+	const authorizedAgents = authorized ?? supportedAgents;
+	const authorizedIds = new Set(authorizedAgents.map((agent) => agent.id));
+	const installedById = new Map(installedAgents.map((agent) => [agent.id, agent]));
+	const options = supportedAgents
+		.map((agent) => {
+			const installedAgent = installedById.get(agent.id);
+			const authStatus = installedAgent?.authStatus;
+			const isAuthorized = authorizedIds.has(agent.id) || authStatus === "authorized";
+			const isAuthUnknown = Boolean(installedAgent) && !isAuthorized && authStatus !== "unauthorized";
+			const isSelectable = isAuthorized || isAuthUnknown;
+			const rank = isAuthorized ? 0 : isAuthUnknown ? 1 : installedAgent ? 2 : 3;
+			return {
+				...agent,
+				disabled: !isSelectable,
+				rank,
+				reason: !installedAgent ? "Needs install" : isAuthUnknown ? "Auth unknown" : !isAuthorized ? "Needs auth" : "",
+				warning: isAuthUnknown,
+			};
+		})
+		.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+
 	return (
 		<div className="flex flex-col gap-1.5">
 			<Label htmlFor={id} className="text-[12px] font-medium text-muted-foreground">
 				{label}
 			</Label>
-			<Select value={value} onValueChange={onChange}>
+			<Select value={value} onValueChange={onChange} disabled={disabled}>
 				<SelectTrigger id={id} className="h-8 w-full text-[13px]" aria-invalid={invalid || undefined}>
 					<SelectValue placeholder={placeholder} />
 				</SelectTrigger>
-				<SelectContent>
-					{AGENT_OPTIONS.map((agent) => (
-						<SelectItem key={agent} value={agent}>
-							{agent}
+				<SelectContent position="popper" align="start" sideOffset={4} className="!max-h-80">
+					{options.map((agent) => (
+						<SelectItem
+							key={agent.id}
+							value={agent.id}
+							disabled={agent.disabled}
+							className="[&>span:last-child]:w-full"
+						>
+							<span className="flex min-w-0 w-full items-center justify-between gap-4">
+								<span className="truncate">{agent.label}</span>
+								{agent.reason && (
+									<span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+										{agent.warning && <TriangleAlert className="size-3 text-warning" aria-hidden="true" />}
+										{agent.reason}
+									</span>
+								)}
+							</span>
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
 		</div>
 	);
-}
+});

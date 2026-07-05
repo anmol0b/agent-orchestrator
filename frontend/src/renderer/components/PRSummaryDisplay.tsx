@@ -97,7 +97,10 @@ export function PRSummaryParts({
 		>
 			{parts.map((part) => {
 				const links = part.links.slice(0, maxLinks);
-				const overflowLabel = overflowPartLabel(part.links.length - links.length, part.overflowNoun);
+				const overflowLabel = overflowPartLabel(
+					(part.linkTotal ?? part.links.length) - links.length,
+					part.overflowNoun,
+				);
 				return (
 					<div key={part.key} className={cn("min-w-0", stacked ? "flex flex-col" : "inline-flex flex-wrap gap-x-1")}>
 						<div className="min-w-0 truncate">

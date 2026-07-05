@@ -52,4 +52,29 @@ describe("PRSummaryParts", () => {
 		expect(screen.queryByText("types")).not.toBeInTheDocument();
 		expect(screen.getByText("+1 check")).toBeInTheDocument();
 	});
+
+	it("counts overflow beyond helper-truncated links", () => {
+		render(
+			<PRSummaryParts
+				interactiveLinks={false}
+				pr={summary({
+					ci: {
+						state: "failing",
+						failingChecks: [
+							{ name: "unit", status: "failed", conclusion: "failure", url: "https://checks.example/unit" },
+							{ name: "lint", status: "failed", conclusion: "failure", url: "https://checks.example/lint" },
+							{ name: "types", status: "failed", conclusion: "failure", url: "https://checks.example/types" },
+							{ name: "build", status: "failed", conclusion: "failure", url: "https://checks.example/build" },
+						],
+					},
+				})}
+			/>,
+		);
+
+		expect(screen.getByText("unit")).toBeInTheDocument();
+		expect(screen.getByText("lint")).toBeInTheDocument();
+		expect(screen.getByText("types")).toBeInTheDocument();
+		expect(screen.queryByText("build")).not.toBeInTheDocument();
+		expect(screen.getByText("+1 check")).toBeInTheDocument();
+	});
 });

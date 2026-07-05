@@ -41,6 +41,7 @@ export type PRSummaryPart = {
 	status: string;
 	summary?: string;
 	links: PRSummaryLink[];
+	linkTotal?: number;
 	overflowLabel?: string;
 	overflowNoun?: string;
 	tone: PRDisplayTone;
@@ -124,6 +125,7 @@ export function prSummaryParts(pr: SessionPRSummary): PRSummaryPart[] {
 			status: ciLabel(pr.ci.state),
 			summary: ciSummary(pr),
 			links: ciLinks(pr),
+			linkTotal: pr.ci.state === "failing" ? pr.ci.failingChecks.length : 0,
 			overflowLabel: pr.ci.state === "failing" ? overflowLabel(pr.ci.failingChecks.length, 3, "check") : undefined,
 			overflowNoun: "check",
 			tone: ciTone(pr.ci.state),
@@ -134,6 +136,7 @@ export function prSummaryParts(pr: SessionPRSummary): PRSummaryPart[] {
 			status: mergeabilityLabel(pr.mergeability.state),
 			summary: mergeSummary(pr),
 			links: mergeLinks(pr),
+			linkTotal: mergeLinkTotal(pr),
 			overflowLabel: mergeOverflowLabel(pr),
 			overflowNoun: mergeOverflowNoun(pr),
 			tone: mergeabilityTone(pr.mergeability.state),
@@ -144,6 +147,7 @@ export function prSummaryParts(pr: SessionPRSummary): PRSummaryPart[] {
 			status: reviewLabel(pr.review.decision),
 			summary: reviewSummary(pr),
 			links: reviewLinks(pr),
+			linkTotal: reviewLinkTotal(pr),
 			overflowLabel:
 				pr.state === "draft" || pr.review.decision === "review_required"
 					? undefined
@@ -254,8 +258,32 @@ function mergeOverflowLabel(pr: SessionPRSummary): string | undefined {
 	return undefined;
 }
 
+function mergeLinkTotal(pr: SessionPRSummary): number {
+	if (pr.state === "merged" || pr.state === "closed") {
+		return 0;
+	}
+	if (pr.mergeability.state === "conflicting") {
+		const conflictFileCount = pr.mergeability.conflictFiles?.length ?? 0;
+		return conflictFileCount > 0 ? conflictFileCount : mergeLinks(pr).length;
+	}
+	if (pr.mergeability.state === "blocked" || pr.mergeability.state === "unstable") {
+		return pr.mergeability.reasons.length;
+	}
+	return 0;
+}
+
 function mergeOverflowNoun(pr: SessionPRSummary): string {
 	return (pr.mergeability.conflictFiles ?? []).length > 0 ? "file" : "reason";
+}
+
+function reviewLinkTotal(pr: SessionPRSummary): number {
+	if (pr.state === "merged" || pr.state === "closed" || pr.state === "draft") {
+		return 0;
+	}
+	if (pr.review.decision !== "changes_requested" && !pr.review.hasUnresolvedHumanComments) {
+		return 0;
+	}
+	return pr.review.unresolvedBy.length > 0 ? pr.review.unresolvedBy.length : reviewLinks(pr).length;
 }
 
 function toCIState(value: string): SessionPRSummary["ci"]["state"] {

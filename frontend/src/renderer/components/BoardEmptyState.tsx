@@ -29,19 +29,19 @@ export function BoardWelcome() {
 					Welcome to Agent Orchestrator
 				</h2>
 				<p className="mt-2 max-w-[400px] text-[12.5px] leading-[1.6] text-muted-foreground">
-					Point it at a git repository and delegate. Agents do the work on isolated branches; you review and merge the
-					PRs from this board.
+					Add a git repository, describe the work, and AO coordinates agent sessions on isolated branches. This kanban
+					board tracks each session from work through review to merge.
 				</p>
 
 				<ol className="mt-7 w-full divide-y divide-border rounded-[13px] border border-border bg-surface text-left">
 					<WelcomeStep n="01" title="Add a project">
-						Pick a local git repository and choose which agents run it.
+						Choose a local git repository and select the agents AO should use.
 					</WelcomeStep>
 					<WelcomeStep n="02" title="Describe a task">
-						The orchestrator plans the work and spawns worker sessions, each on its own branch.
+						Tell the orchestrator what you want done; it creates worker sessions on isolated branches.
 					</WelcomeStep>
 					<WelcomeStep n="03" title="Review and merge">
-						Sessions move across this board as they progress:
+						Follow each session from work to review to merge readiness:
 						<span className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
 							{FLOW_LEGEND.map((zone, index) => (
 								<Fragment key={zone.label}>
@@ -123,7 +123,7 @@ export function ProjectBoardEmpty({
 	return (
 		<div className="flex h-full min-h-0 items-center justify-center overflow-y-auto">
 			<div className="flex w-full max-w-[400px] flex-col items-center pb-[5vh] text-center">
-				<h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">No sessions yet</h2>
+				<h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">No worker sessions yet</h2>
 				<p className="mt-2 text-[12.5px] leading-[1.6] text-muted-foreground">
 					Describe a task and the orchestrator plans it, spawns worker sessions, and tracks them here from work to
 					merge.

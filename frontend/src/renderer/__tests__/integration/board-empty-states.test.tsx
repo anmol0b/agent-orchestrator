@@ -118,6 +118,8 @@ describe("global board first launch", () => {
 		expect(screen.getByText("Describe a task")).toBeInTheDocument();
 		expect(screen.getByText("Ready to merge")).toBeInTheDocument();
 		expect(columnCount()).toBe(0);
+		// The welcome carries its own orientation — no dangling "Board" header.
+		expect(screen.queryByText("Board")).not.toBeInTheDocument();
 	});
 
 	it("opens the native folder picker from the welcome CTA", async () => {
@@ -154,7 +156,7 @@ describe("project board with no sessions", () => {
 		respondWith([project], []);
 		renderBoard(<SessionsBoard projectId="proj-1" />);
 
-		expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+		expect(await screen.findByText("No worker sessions yet")).toBeInTheDocument();
 		// Board header + empty state each offer the pair; the orchestrator is primary in both.
 		expect(screen.getAllByRole("button", { name: "Spawn Orchestrator" }).length).toBeGreaterThan(0);
 		expect(screen.getAllByRole("button", { name: "New task" }).length).toBeGreaterThan(0);
@@ -167,7 +169,7 @@ describe("project board with no sessions", () => {
 		spawnOrchestratorMock.mockRejectedValue(new Error("branch is already checked out in another worktree"));
 		renderBoard(<SessionsBoard projectId="proj-1" />);
 
-		await screen.findByText("No sessions yet");
+		await screen.findByText("No worker sessions yet");
 		const [spawnButton] = screen.getAllByRole("button", { name: "Spawn Orchestrator" });
 		await userEvent.click(spawnButton);
 
@@ -229,7 +231,7 @@ describe("project board with no sessions", () => {
 			</QueryClientProvider>,
 		);
 
-		await screen.findByText("No sessions yet");
+		await screen.findByText("No worker sessions yet");
 		await waitFor(() => expect(useUiStore.getState().orchestratorStartupErrors["proj-1"]).toBeUndefined());
 		expect(screen.queryByText(/Project added, but orchestrator did not start/)).not.toBeInTheDocument();
 	});
@@ -244,7 +246,7 @@ describe("project board with no sessions", () => {
 			);
 		renderBoard(<SessionsBoard projectId="proj-1" />);
 
-		await screen.findByText("No sessions yet");
+		await screen.findByText("No worker sessions yet");
 		await waitFor(() => expect(useUiStore.getState().orchestratorStartupErrors["proj-1"]).toBeUndefined());
 		expect(screen.queryByText(/Project added, but orchestrator did not start/)).not.toBeInTheDocument();
 	});
@@ -255,7 +257,7 @@ describe("project board with no sessions", () => {
 		spawnOrchestratorMock.mockRejectedValue(new Error("branch is already checked out in another worktree"));
 		const { rerender } = renderBoard(<SessionsBoard projectId="proj-1" />);
 
-		await screen.findByText("No sessions yet");
+		await screen.findByText("No worker sessions yet");
 		const [spawnButton] = screen.getAllByRole("button", { name: "Spawn Orchestrator" });
 		await userEvent.click(spawnButton);
 		await screen.findByText(/branch is already checked out/);
@@ -267,7 +269,7 @@ describe("project board with no sessions", () => {
 				</ShellProvider>
 			</QueryClientProvider>,
 		);
-		await screen.findByText("No sessions yet");
+		await screen.findByText("No worker sessions yet");
 		expect(screen.queryByText(/branch is already checked out/)).not.toBeInTheDocument();
 	});
 
@@ -276,7 +278,7 @@ describe("project board with no sessions", () => {
 		renderBoard(<SessionsBoard projectId="proj-1" />);
 
 		expect(await screen.findByText("fix the bug")).toBeInTheDocument();
-		expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
+		expect(screen.queryByText("No worker sessions yet")).not.toBeInTheDocument();
 		expect(columnCount()).toBe(4);
 	});
 });

@@ -225,11 +225,16 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-			<DashboardSubhead
-				title="Board"
-				subtitle="Live agent sessions flowing from work → review → merge."
-				actions={actions}
-			/>
+			{/* The first-launch welcome carries its own orientation; a "Board"
+			    header above it would describe a board that isn't rendered
+			    (review feedback on #2432). */}
+			{!showWelcome && (
+				<DashboardSubhead
+					title="Board"
+					subtitle="Live agent sessions flowing from work → review → merge."
+					actions={actions}
+				/>
+			)}
 
 			<div className="min-h-0 flex-1 overflow-hidden p-[18px]">
 				{projectId && health.state !== "ok" ? (

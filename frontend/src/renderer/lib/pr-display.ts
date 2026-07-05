@@ -168,7 +168,7 @@ export function prDiffSummary(pr: SessionPRSummary): string | undefined {
 
 function ciSummary(pr: SessionPRSummary): string | undefined {
 	if (pr.ci.state === "failing") {
-		return pr.ci.failingChecks.length === 0 ? "No failing check link observed" : "Fix failing CI";
+		return pr.ci.failingChecks.length === 0 ? "No failing check link observed" : undefined;
 	}
 	return undefined;
 }
@@ -192,7 +192,7 @@ function reviewSummary(pr: SessionPRSummary): string | undefined {
 		return "Draft PR · Not ready for review";
 	}
 	if (pr.review.decision === "changes_requested" || pr.review.hasUnresolvedHumanComments) {
-		return "Address requested changes";
+		return reviewLinks(pr).length === 0 ? "Requested changes still active" : undefined;
 	}
 	if (pr.review.decision === "review_required") {
 		return "Required review not submitted";
@@ -219,10 +219,10 @@ function mergeSummary(pr: SessionPRSummary): string | undefined {
 		return formatDiffSummary(pr);
 	}
 	if (pr.mergeability.state === "conflicting") {
-		return "Resolve merge conflict";
+		return mergeLinks(pr).length === 0 ? "Conflicts with the base branch" : undefined;
 	}
 	if (pr.mergeability.state === "blocked" || pr.mergeability.state === "unstable") {
-		return "Merge blocked";
+		return mergeLinks(pr).length === 0 ? "Provider reports merge is blocked" : undefined;
 	}
 	return formatDiffSummary(pr);
 }

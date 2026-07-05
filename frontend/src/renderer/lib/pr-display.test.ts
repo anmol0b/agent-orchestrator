@@ -105,7 +105,7 @@ describe("prSummaryParts", () => {
 		expect(parts.map((part) => part.key)).toEqual(["ci", "merge", "review"]);
 		expect(parts.find((part) => part.key === "ci")).toMatchObject({
 			status: "Failing",
-			summary: "Fix failing CI",
+			summary: undefined,
 			tone: "error",
 		});
 		expect(parts.find((part) => part.key === "ci")?.links[0]).toMatchObject({
@@ -114,12 +114,12 @@ describe("prSummaryParts", () => {
 		});
 		expect(parts.find((part) => part.key === "merge")).toMatchObject({
 			status: "Blocked",
-			summary: "Merge blocked",
+			summary: undefined,
 			tone: "warning",
 		});
 		expect(parts.find((part) => part.key === "review")).toMatchObject({
 			status: "Changes requested",
-			summary: "Address requested changes",
+			summary: undefined,
 			tone: "warning",
 		});
 		expect(parts.find((part) => part.key === "review")?.links[0]).toMatchObject({
@@ -268,7 +268,7 @@ describe("prSummaryParts", () => {
 
 		expect(parts.find((part) => part.key === "merge")).toMatchObject({
 			status: "Conflict",
-			summary: "Resolve merge conflict",
+			summary: undefined,
 		});
 		expect(parts.find((part) => part.key === "merge")?.links[0]).toMatchObject({
 			label: "conflicts",

@@ -149,11 +149,12 @@ type LaunchConfig struct {
 
 // WorkspaceHookConfig carries inputs needed to install workspace-local agent hooks.
 type WorkspaceHookConfig struct {
-	Config        AgentConfig
-	DataDir       string
-	SessionID     string
-	SystemPrompt  string
-	WorkspacePath string
+	Config           AgentConfig
+	DataDir          string
+	SessionID        string
+	SystemPrompt     string
+	SystemPromptFile string
+	WorkspacePath    string
 }
 
 // RestoreConfig carries inputs needed to continue an existing native agent session.

@@ -109,11 +109,7 @@ func TestGetLaunchCommandIgnoresSystemPrompt(t *testing.T) {
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
 	}
-	for _, arg := range cmd {
-		if arg == "--append-system-prompt" || arg == "--append-system-prompt-file" {
-			t.Fatalf("cmd = %#v unexpectedly contains system prompt flag", cmd)
-		}
-	}
+	assertAmpSystemPromptFlagsAbsent(t, cmd)
 }
 
 func TestGetLaunchCommandOmitsExecuteModeWithoutPrompt(t *testing.T) {
@@ -129,6 +125,17 @@ func TestGetLaunchCommandOmitsExecuteModeWithoutPrompt(t *testing.T) {
 	want := []string{"amp"}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("cmd = %#v, want %#v", cmd, want)
+	}
+	assertAmpSystemPromptFlagsAbsent(t, cmd)
+}
+
+func assertAmpSystemPromptFlagsAbsent(t *testing.T, cmd []string) {
+	t.Helper()
+	for _, arg := range cmd {
+		switch arg {
+		case "--append-system-prompt", "--append-system-prompt-file":
+			t.Fatalf("cmd = %#v unexpectedly contains unsupported Amp system prompt flag %q", cmd, arg)
+		}
 	}
 }
 

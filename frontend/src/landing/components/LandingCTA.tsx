@@ -41,7 +41,7 @@ export function LandingCTA() {
 		<section
 			id="get-started"
 			data-testid="cta-section"
-			className="landing-reveal relative overflow-hidden border-t border-[color:var(--border)] py-20 sm:py-28"
+			className="landing-section landing-reveal relative overflow-hidden border-t border-[color:var(--border)]"
 		>
 			{/* soft accent glow */}
 			<div
@@ -120,7 +120,7 @@ export function LandingCTA() {
 					) : null}
 
 					<p className="mt-7 font-mono text-[11px] uppercase tracking-[0.16em] text-[color:var(--fg-dim)]">
-						macOS · Windows · Linux · nightly builds · no account required
+						macOS · Windows · Linux · nightly builds
 					</p>
 				</div>
 			</div>

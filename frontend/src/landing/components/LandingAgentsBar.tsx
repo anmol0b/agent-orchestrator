@@ -74,9 +74,9 @@ export function LandingAgentsBar() {
 		<section
 			id="agents"
 			data-testid="agents-marquee"
-			className="landing-reveal relative overflow-hidden border-y border-white/[0.04] bg-[color:var(--bg)]"
+			className="landing-section landing-reveal relative overflow-hidden border-t border-[color:var(--border)] bg-[color:var(--bg)]"
 		>
-			<div className="container-page pt-14 pb-15">
+			<div className="container-page">
 				<div className="mx-auto max-w-[1180px]">
 					<div className="flex flex-wrap items-end justify-between gap-6">
 						<div>

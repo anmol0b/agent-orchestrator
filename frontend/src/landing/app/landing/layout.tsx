@@ -24,6 +24,10 @@ export const metadata: Metadata = {
 	},
 	alternates: {
 		canonical: "https://aoagents.dev/",
+		types: {
+			// MACHINE mode: the agent-parseable markdown spec of this page.
+			"text/markdown": "https://aoagents.dev/?mode=machine",
+		},
 	},
 };
 

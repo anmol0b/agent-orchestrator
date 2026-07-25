@@ -9,6 +9,9 @@ type Feature = {
 	alt: string;
 	width: number;
 	height: number;
+	/** Status accent for the step: work starts (blue), attention (amber), done (green). */
+	accent: string;
+	accentSoft: string;
 };
 
 const features: Feature[] = [
@@ -21,6 +24,8 @@ const features: Feature[] = [
 		alt: "A real orchestrator session in AO: the user asks it to plan tasks from the backlog, and the orchestrator answers with a triage, a plan table, and spawns the workers.",
 		width: 1600,
 		height: 565,
+		accent: "var(--status-working)",
+		accentSoft: "var(--status-working-soft)",
 	},
 	{
 		eyebrow: "Watch",
@@ -31,6 +36,8 @@ const features: Feature[] = [
 		alt: "The AO board with real sessions across four columns — Working, Needs you, In review, Ready to merge — each card showing its task, agent, branch, and pull request state.",
 		width: 1600,
 		height: 674,
+		accent: "var(--status-action)",
+		accentSoft: "var(--status-action-soft)",
 	},
 	{
 		eyebrow: "Close the loop",
@@ -41,6 +48,8 @@ const features: Feature[] = [
 		alt: "A session inspector in AO: a real Codex terminal that just received AO's message about CI failing on its pull request, next to the pull request card and activity timeline.",
 		width: 1600,
 		height: 811,
+		accent: "var(--status-ready)",
+		accentSoft: "var(--status-ready-soft)",
 	},
 ];
 
@@ -49,7 +58,7 @@ export function LandingFeaturesShowcase() {
 		<section
 			id="features"
 			data-testid="features-showcase"
-			className="relative border-t border-[color:var(--border)] pt-16 pb-20 sm:pt-[clamp(80px,9vw,128px)] sm:pb-[clamp(90px,10vw,140px)]"
+			className="landing-section relative border-t border-[color:var(--border)]"
 		>
 			<div className="container-page">
 				<div className="mx-auto max-w-[1180px]">
@@ -66,25 +75,30 @@ export function LandingFeaturesShowcase() {
 							const flip = index % 2 === 1;
 							return (
 								<div key={feature.title} className="landing-reveal grid items-center gap-8 lg:grid-cols-12 lg:gap-12">
-									<div className={`lg:col-span-5 ${flip ? "lg:order-2" : ""}`}>
-										<div className="landing-eyebrow landing-eyebrow-accent">{feature.eyebrow}</div>
-										<h3 className="mt-3 text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] text-[color:var(--fg)] sm:text-[32px]">
-											{feature.title}
-										</h3>
-										<p className="mt-4 max-w-[46ch] text-[15px] leading-[1.7] text-[color:var(--fg-muted)]">
-											{feature.body}
-										</p>
-										<div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] uppercase tracking-[0.1em] text-[color:var(--fg-dim)]">
-											{feature.facts.map((fact) => (
-												<span key={fact} className="inline-flex items-center gap-2">
-													<span className="h-1 w-1 rounded-full bg-[color:var(--accent)]" aria-hidden="true" />
-													{fact}
-												</span>
-											))}
-										</div>
+								<div className={`lg:col-span-5 ${flip ? "lg:order-2" : ""}`}>
+									<div className="landing-eyebrow" style={{ color: feature.accent }}>
+										{feature.eyebrow}
 									</div>
-									<div className={`relative lg:col-span-7 ${flip ? "lg:order-1" : ""}`}>
-										<div className="pointer-events-none absolute -inset-4 rounded-2xl bg-[color:var(--accent)] opacity-[0.03] blur-2xl" />
+									<h3 className="mt-3 text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] text-[color:var(--fg)] sm:text-[32px]">
+										{feature.title}
+									</h3>
+									<p className="mt-4 max-w-[46ch] text-[15px] leading-[1.7] text-[color:var(--fg-muted)]">
+										{feature.body}
+									</p>
+									<div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] uppercase tracking-[0.1em] text-[color:var(--fg-dim)]">
+										{feature.facts.map((fact) => (
+											<span key={fact} className="inline-flex items-center gap-2">
+												<span className="h-1 w-1 rounded-full" style={{ background: feature.accent }} aria-hidden="true" />
+												{fact}
+											</span>
+										))}
+									</div>
+								</div>
+								<div className={`relative lg:col-span-7 ${flip ? "lg:order-1" : ""}`}>
+									<div
+										className="pointer-events-none absolute -inset-4 rounded-2xl opacity-[0.5] blur-2xl"
+										style={{ background: feature.accentSoft }}
+									/>
 										<div className="hero-laptop-screen relative">
 											<div className="hero-laptop-display">
 												<Image

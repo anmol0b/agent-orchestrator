@@ -78,8 +78,8 @@ const socials = [
 ];
 
 const navLinks = [
-	{ label: "Demo", href: "/#see-it" },
 	{ label: "Features", href: "/#features" },
+	{ label: "Local-first", href: "/#local-first" },
 	{ label: "Changelog", href: "/changelog" },
 	{ label: "Docs", href: "/docs/" },
 ];

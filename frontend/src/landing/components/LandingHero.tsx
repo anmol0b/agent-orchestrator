@@ -75,23 +75,23 @@ type AppProject = {
 const columnDefinitions: Record<BoardColumnId, { title: string; color: string; glow: string }> = {
 	working: {
 		title: "Working",
-		color: "#f59f4c",
-		glow: "rgba(245,159,76,0.07)",
+		color: "#5b8def",
+		glow: "rgba(91,141,239,0.07)",
 	},
 	action: {
 		title: "Needs you",
-		color: "#e8c14a",
-		glow: "rgba(232,193,74,0.06)",
+		color: "#f2b84b",
+		glow: "rgba(242,184,75,0.06)",
 	},
 	pending: {
 		title: "In review",
-		color: "#7f8794",
+		color: "#8e96a3",
 		glow: "rgba(255,255,255,0.02)",
 	},
 	merge: {
 		title: "Ready to merge",
-		color: "#74b98a",
-		glow: "rgba(116,185,138,0.07)",
+		color: "#9ad97a",
+		glow: "rgba(154,217,122,0.07)",
 	},
 };
 
@@ -410,7 +410,7 @@ function HeroDashboardMockup() {
 								'-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Helvetica Neue", sans-serif',
 						}}
 					>
-						<aside className="flex min-h-[640px] overflow-hidden flex-col border-r border-[rgba(255,255,255,0.06)] bg-[#11100b]">
+						<aside className="flex min-h-[640px] overflow-hidden flex-col border-r border-[rgba(255,255,255,0.06)] bg-[#0e1013]">
 							<div
 								className={`flex shrink-0 items-center gap-2.5 pt-3.5 ${
 									sidebarOpen ? "px-5 pb-[18px]" : "justify-center px-1.5 pb-2"
@@ -576,7 +576,7 @@ function HeroDashboardMockup() {
 							</div>
 						</aside>
 
-						<div className="relative flex min-w-0 flex-col bg-[#14120d]">
+						<div className="relative flex min-w-0 flex-col bg-[#101216]">
 							<div className="flex items-center gap-3 px-[18px] pt-[22px]">
 								<div className="flex min-w-0 items-baseline gap-3">
 									<h2 className="text-[21px] font-bold tracking-[-0.025em] text-[#f4f5f7]">Board</h2>
@@ -588,7 +588,7 @@ function HeroDashboardMockup() {
 									<button
 										type="button"
 										onClick={showNewTask}
-										className="hero-pressable inline-flex h-[34px] items-center gap-1.5 rounded-[7px] border border-[rgba(255,255,255,0.07)] bg-[#211d14] px-[15px] text-[13px] font-semibold leading-none text-[#9ba1aa] hover:bg-[#252116] hover:text-[#f4f5f7]"
+										className="hero-pressable inline-flex h-[34px] items-center gap-1.5 rounded-[7px] border border-[rgba(255,255,255,0.07)] bg-[#1b1d22] px-[15px] text-[13px] font-semibold leading-none text-[#9ba1aa] hover:bg-[#212329] hover:text-[#f4f5f7]"
 									>
 										<PlusIcon className="h-3.5 w-3.5" />
 										New task
@@ -596,7 +596,7 @@ function HeroDashboardMockup() {
 									<button
 										type="button"
 										onClick={() => showTerminal(`Orchestrator · ${activeProjectLabel}`)}
-										className="hero-pressable inline-flex h-[34px] items-center gap-1.5 rounded-[7px] bg-[color:var(--accent)] px-[15px] text-[13px] font-semibold leading-none text-[#11140c] hover:brightness-110"
+										className="hero-pressable inline-flex h-[34px] items-center gap-1.5 rounded-[7px] bg-[color:var(--accent)] px-[15px] text-[13px] font-semibold leading-none text-[#0a0b0d] hover:brightness-110"
 									>
 										<NetworkIcon className="h-3.5 w-3.5" />
 										Orchestrator
@@ -647,7 +647,7 @@ function HeroDashboardMockup() {
 																key={`${card.branch}-${card.title}`}
 																type="button"
 																onClick={() => showTerminal(card.title)}
-																className="w-full rounded-[7px] border border-[rgba(255,255,255,0.06)] bg-[#1a1812] text-left transition-colors hover:border-[rgba(255,255,255,0.10)]"
+																className="w-full rounded-[7px] border border-[rgba(255,255,255,0.06)] bg-[#15171b] text-left transition-colors hover:border-[rgba(255,255,255,0.10)]"
 															>
 																<div className="flex items-center gap-2 px-[13px] pb-[9px] pt-3">
 																	<span
@@ -657,7 +657,7 @@ function HeroDashboardMockup() {
 																				card.status === "CI failed" ||
 																				card.status === "Blocked" ||
 																				card.status === "Needs input"
-																					? "#ef6b6b"
+																					? "#ee6a6a"
 																					: column.color,
 																		}}
 																	>
@@ -720,7 +720,7 @@ function HeroDashboardMockup() {
 
 function MockTerminalPanel({ activeProjectLabel, title }: { activeProjectLabel: string; title: string }) {
 	return (
-		<div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_270px] overflow-hidden rounded-[13px] border border-[rgba(255,255,255,0.07)] bg-[#0c0d0f]">
+		<div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_270px] overflow-hidden rounded-[13px] border border-[rgba(255,255,255,0.07)] bg-[#0a0b0d]">
 			<div className="flex min-w-0 flex-col bg-[#15171b]">
 				<div className="flex h-[47px] shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.07)] px-4">
 					<div className="flex min-w-0 items-baseline gap-2">
@@ -758,7 +758,7 @@ function MockTerminalPanel({ activeProjectLabel, title }: { activeProjectLabel: 
 					<div className="mt-2 text-[#9ba1aa]">• What would you like me to do?</div>
 					<div className="mt-6">
 						<span className="text-[#f4f5f7]">› </span>
-						<span className="rounded-sm bg-[#f59f4c] px-[3px] text-[#11100b]"> </span>
+						<span className="rounded-sm bg-[#5b8def] px-[3px] text-[#0a0b0d]"> </span>
 						<span className="text-[#858b95]"> Use /skills to list available skills</span>
 					</div>
 					<div className="mt-5 text-[#ffd28a]">
@@ -788,7 +788,7 @@ function MockTerminalPanel({ activeProjectLabel, title }: { activeProjectLabel: 
 					<div className="mt-7 font-mono text-[10px] uppercase tracking-[0.12em] text-[#646a73]">Activity</div>
 					<div className="mt-4 space-y-4 text-[12px]">
 						<div className="flex gap-2">
-							<span className="mt-1.5 h-2 w-2 rounded-full bg-[#f59f4c]" />
+							<span className="mt-1.5 h-2 w-2 rounded-full bg-[#5b8def]" />
 							<div>
 								<div className="text-[#f4f5f7]">Session active</div>
 								<div className="mt-1 font-mono text-[10px] text-[#646a73]">just now</div>
@@ -819,7 +819,7 @@ function MockTerminalPanel({ activeProjectLabel, title }: { activeProjectLabel: 
 
 function MockSettingsPanel({ activeProjectLabel }: { activeProjectLabel: string }) {
 	return (
-		<div className="h-full min-h-0 overflow-hidden rounded-[13px] bg-[#14120d] text-[#f4f5f7]">
+		<div className="h-full min-h-0 overflow-hidden rounded-[13px] bg-[#101216] text-[#f4f5f7]">
 			<div className="border-b border-[rgba(255,255,255,0.07)] px-5 py-4">
 				<h3 className="text-[18px] font-bold tracking-[-0.02em]">Settings</h3>
 				<div className="mt-1 font-mono text-[11px] text-[#646a73]">/repos/{activeProjectLabel}</div>
@@ -842,12 +842,12 @@ function MockSettingsPanel({ activeProjectLabel }: { activeProjectLabel: string 
 				</SettingsCard>
 				<div className="flex items-center gap-3 pt-1">
 					<button
-						className="h-8 rounded-md bg-[color:var(--accent)] px-3 text-[12px] font-semibold text-[#11140c]"
+						className="h-8 rounded-md bg-[color:var(--accent)] px-3 text-[12px] font-semibold text-[#0a0b0d]"
 						type="button"
 					>
 						Save changes
 					</button>
-					<span className="text-[12px] text-[#74b98a]">Saved.</span>
+					<span className="text-[12px] text-[#9ad97a]">Saved.</span>
 				</div>
 			</div>
 		</div>
@@ -930,7 +930,7 @@ function MockNewTaskDialog({
 							type="button"
 							onClick={handleStart}
 							disabled={!title.trim()}
-							className="h-8 rounded-md bg-[color:var(--accent)] px-3 text-[12px] font-semibold text-[#11140c] transition hover:brightness-110 disabled:opacity-50"
+							className="h-8 rounded-md bg-[color:var(--accent)] px-3 text-[12px] font-semibold text-[#0a0b0d] transition hover:brightness-110 disabled:opacity-50"
 						>
 							Start task
 						</button>
@@ -1047,13 +1047,13 @@ function DialogSelect({
 function SessionDot({ zone }: { zone: string }) {
 	const color =
 		zone === "working"
-			? "#f59f4c"
+			? "#5b8def"
 			: zone === "warning"
-				? "#e8c14a"
+				? "#f2b84b"
 				: zone === "error"
-					? "#ef6b6b"
+					? "#ee6a6a"
 					: zone === "success"
-						? "#74b98a"
+						? "#9ad97a"
 						: "#646a73";
 	return <span className="mt-px h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />;
 }

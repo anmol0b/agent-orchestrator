@@ -46,8 +46,8 @@
 }
 
 :root {
-	--font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
-	--font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+	--font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+	--font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
 
 	/* ── Light mode (default) ─────────────────────────────────────── */
 	--color-bg-base: #f8fafc;
@@ -75,29 +75,30 @@
 }
 
 /* ── Dark mode ────────────────────────────────────────────────── */
+/* Near-black neutral ramp, shared with the AO desktop app tokens. */
 .dark {
-	--color-bg-base: #14120b;
-	--color-bg-surface: #19160e;
-	--color-bg-elevated: #201c12;
-	--color-bg-subtle: #1b170f;
-	--color-bg-inset: #100e08;
-	--color-bg-sidebar: #17140c;
+	--color-bg-base: #0a0b0d;
+	--color-bg-surface: #121418;
+	--color-bg-elevated: #17191e;
+	--color-bg-subtle: #101216;
+	--color-bg-inset: #07080a;
+	--color-bg-sidebar: #0e1013;
 
-	--color-text-primary: #f5f5f4;
-	--color-text-secondary: #9b9b98;
-	--color-text-tertiary: #8a8a82;
+	--color-text-primary: #f4f5f7;
+	--color-text-secondary: #9ba1aa;
+	--color-text-tertiary: #646a73;
 
-	--color-border-default: rgba(255, 255, 255, 0.12);
+	--color-border-default: rgba(255, 255, 255, 0.1);
 	--color-border-subtle: rgba(255, 255, 255, 0.06);
 
-	--color-accent: #82aaff;
-	--color-accent-dim: rgba(130, 170, 255, 0.1);
-	--color-accent-border: rgba(130, 170, 255, 0.22);
+	--color-accent: #5b8def;
+	--color-accent-dim: rgba(91, 141, 239, 0.1);
+	--color-accent-border: rgba(91, 141, 239, 0.26);
 	--color-accent-amber: var(--color-accent);
 	--color-accent-amber-dim: var(--color-accent-dim);
 	--color-accent-amber-border: var(--color-accent-border);
 
-	--color-scrollbar: rgba(255, 240, 220, 0.15);
+	--color-scrollbar: rgba(255, 255, 255, 0.12);
 }
 
 * {
@@ -155,9 +156,17 @@ body::-webkit-scrollbar,
 	--accent: var(--color-accent);
 	--accent-soft: var(--color-accent-dim);
 	--accent-glow: var(--color-accent-border);
-	--status-warn: var(--color-accent);
-	--status-fail: #dc2626;
-	--status-ok: #16a34a;
+	/* Session status accents — the same colors the AO board uses. */
+	--status-working: #5b8def;
+	--status-working-soft: rgba(91, 141, 239, 0.12);
+	--status-action: #f2b84b;
+	--status-action-soft: rgba(242, 184, 75, 0.12);
+	--status-review: #8e96a3;
+	--status-ready: #9ad97a;
+	--status-ready-soft: rgba(154, 217, 122, 0.12);
+	--status-fail: #ee6a6a;
+	--status-fail-soft: rgba(238, 106, 106, 0.12);
+	--status-ok: #9ad97a;
 	--wire: var(--color-border-default);
 	--dot-red: #ff5f57;
 	--dot-yellow: #ffbd2e;
@@ -185,14 +194,13 @@ body::-webkit-scrollbar,
 }
 
 .dark .landing-page {
-	--status-fail: #ef4444;
-	--status-ok: #22c55e;
+	/* Status hues stay constant — they mirror the desktop app, not the theme. */
 }
 
 /* Magic UI changelog structure, branded with the landing page design system. */
 .changelog-template {
 	--font-sans: var(--font-inter), -apple-system, system-ui, sans-serif;
-	--font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+	--font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
 	--radius: 0.625rem;
 	--background: var(--color-bg-base);
 	--foreground: var(--color-text-primary);
@@ -340,22 +348,24 @@ body::-webkit-scrollbar,
 }
 
 .landing-hero-section {
-	padding-top: clamp(120px, 13vw, 180px);
-	padding-bottom: clamp(80px, 9vw, 120px);
+	padding-top: clamp(120px, 13vw, 168px);
+	padding-bottom: clamp(88px, 10vw, 128px);
 }
 
+/* One section rhythm for the whole page — dense proof sections and sparse
+   headline-only sections share the same vertical beat. */
 .landing-section {
-	padding-top: clamp(100px, 12vw, 180px);
-	padding-bottom: clamp(100px, 12vw, 180px);
+	padding-top: clamp(88px, 10vw, 128px);
+	padding-bottom: clamp(88px, 10vw, 128px);
 }
 
 .landing-section-compact {
-	padding-top: clamp(48px, 6vw, 80px);
-	padding-bottom: clamp(48px, 6vw, 80px);
+	padding-top: clamp(56px, 7vw, 88px);
+	padding-bottom: clamp(56px, 7vw, 88px);
 }
 
 .landing-section-header {
-	margin-bottom: clamp(64px, 8vw, 100px);
+	margin-bottom: clamp(48px, 6vw, 72px);
 }
 
 .landing-section-stack {
@@ -411,33 +421,36 @@ body::-webkit-scrollbar,
 
 .landing-hero-heading {
 	max-width: 980px;
-	font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
-	font-size: clamp(38px, 5.55vw, 76px);
-	font-weight: 700;
-	line-height: 0.96;
-	letter-spacing: 0;
+	font-family:
+		var(--font-inter),
+		-apple-system,
+		system-ui,
+		sans-serif;
+	font-size: clamp(38px, 5.4vw, 72px);
+	font-weight: 650;
+	line-height: 1.04;
+	letter-spacing: -0.035em;
 	color: var(--fg);
 }
 
 .landing-hero-heading-setup {
 	font-size: 1em;
-	font-weight: 700;
-	line-height: 0.96;
+	font-weight: 650;
+	line-height: 1.04;
 	color: color-mix(in oklab, var(--fg) 72%, var(--fg-muted));
 }
 
 .landing-hero-heading-action {
 	margin-top: 0.04em;
 	font-size: 1em;
-	font-weight: 700;
-	line-height: 0.96;
+	font-weight: 650;
+	line-height: 1.04;
 	color: var(--fg);
 }
 
 .landing-hero-heading-accent {
-	color: #82aaff;
-	font-style: italic;
-	font-weight: 700;
+	color: var(--status-working);
+	font-weight: 650;
 }
 
 .landing-body {
@@ -464,8 +477,8 @@ body::-webkit-scrollbar,
 }
 
 .font-editorial {
-	font-family: ui-serif, Georgia, serif;
-	letter-spacing: 0;
+	font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+	letter-spacing: -0.015em;
 }
 
 /* Fluid, non-jittery hover. No scale/translate on the button itself - scaling
@@ -508,7 +521,7 @@ body::-webkit-scrollbar,
 	overflow: hidden;
 	border: 0;
 	border-radius: 10px;
-	background: #14120d;
+	background: #0e1013;
 	box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.035) inset;
 }
 
@@ -770,23 +783,6 @@ body::-webkit-scrollbar,
 	border-bottom: 1px solid var(--border);
 }
 
-.tweet-masonry {
-	column-count: 1;
-	column-gap: 2rem;
-}
-
-@media (min-width: 768px) {
-	.tweet-masonry {
-		column-count: 2;
-	}
-}
-
-@media (min-width: 1024px) {
-	.tweet-masonry {
-		column-count: 3;
-	}
-}
-
 .surface-elev {
 	background: var(--bg-card);
 	border: 1px solid var(--border);
@@ -915,7 +911,7 @@ body::-webkit-scrollbar,
 }
 
 .landing-hero-grid {
-	background-image: radial-gradient(rgba(255, 240, 220, 0.03) 1px, transparent 1px);
+	background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
 	background-size: 32px 32px;
 	mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
 	-webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
@@ -1267,6 +1263,31 @@ body::-webkit-scrollbar,
 .landing-graph-pulse {
 	transform-box: fill-box;
 	animation: landing-graph-pulse 1.5s ease-out infinite;
+}
+
+/* ── HUMAN / MACHINE mode ─────────────────────────────────────── */
+/* The toggle flips <html data-mode="machine">; CSS owns the swap so it is
+   instant and survives without re-rendering either tree. */
+html:not([data-mode="machine"]) .landing-machine-only {
+	display: none;
+}
+
+html[data-mode="machine"] .landing-human-only {
+	display: none;
+}
+
+.mode-toggle-btn {
+	color: var(--fg-dim);
+}
+
+.mode-toggle-btn:hover {
+	color: var(--fg);
+}
+
+html:not([data-mode="machine"]) .mode-toggle [data-mode-btn="human"],
+html[data-mode="machine"] .mode-toggle [data-mode-btn="machine"] {
+	background: rgba(255, 255, 255, 0.08);
+	color: var(--fg);
 }
 
 /* ── Copyable install command ─────────────────────────────────── */

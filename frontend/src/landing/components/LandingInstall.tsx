@@ -55,7 +55,7 @@ export function LandingInstall() {
 		<section
 			id="install"
 			data-testid="install-section"
-			className="landing-reveal relative border-t border-[color:var(--border)] pt-16 pb-16 sm:pt-[clamp(80px,9vw,128px)] sm:pb-[clamp(80px,9vw,128px)]"
+			className="landing-section landing-reveal relative border-t border-[color:var(--border)]"
 		>
 			<div className="container-page">
 				<div className="mx-auto max-w-[1180px]">
@@ -65,8 +65,7 @@ export function LandingInstall() {
 							Zero to a fleet <span className="landing-heading-muted">in three steps.</span>
 						</h2>
 						<p className="landing-body-compact mt-5">
-							No account, no cloud, no credit card. AO runs as a local daemon on your machine — your code never leaves
-							localhost.
+							About five minutes of setup. After that it's you, the board, and the fleet.
 						</p>
 					</div>
 

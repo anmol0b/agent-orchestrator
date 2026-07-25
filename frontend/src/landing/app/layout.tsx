@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
 import { HomeScrollReset } from "@/components/HomeScrollReset";
 import "../styles/globals.css";
 
@@ -7,6 +7,13 @@ const inter = Inter({
 	subsets: ["latin"],
 	display: "swap",
 	variable: "--font-inter",
+});
+
+const plexMono = IBM_Plex_Mono({
+	subsets: ["latin"],
+	weight: ["400", "500", "600"],
+	display: "swap",
+	variable: "--font-plex-mono",
 });
 
 const description =
@@ -39,6 +46,9 @@ const themeScript = `
   document.documentElement.dataset.theme = "dark";
   document.documentElement.classList.add("dark");
   document.documentElement.style.colorScheme = "dark";
+  if (new URLSearchParams(window.location.search).get("mode") === "machine") {
+    document.documentElement.dataset.mode = "machine";
+  }
 })();
 `;
 
@@ -47,14 +57,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 		<html
 			lang="en"
 			suppressHydrationWarning
-			className={`${inter.variable} ${inter.className} dark`}
+			className={`${inter.variable} ${plexMono.variable} ${inter.className} dark`}
 			data-theme="dark"
 			style={{ colorScheme: "dark" }}
 		>
 			<head>
 				<script dangerouslySetInnerHTML={{ __html: themeScript }} />
 			</head>
-			<body className={`${inter.variable} ${inter.className} font-sans`}>
+			<body className={`${inter.variable} ${plexMono.variable} ${inter.className} font-sans`}>
 				<HomeScrollReset />
 				{children}
 			</body>

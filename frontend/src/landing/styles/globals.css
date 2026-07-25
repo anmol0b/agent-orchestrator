@@ -1334,6 +1334,106 @@ body::-webkit-scrollbar,
 	outline-offset: -1.5px;
 }
 
+/* ── Local-first diagram sequence ─────────────────────────────── */
+/* Elements are fully visible by default. When motion is allowed the section
+   arms itself (hiding animatable parts), then runs once on scroll-into-view:
+   nodes → egress arrows → the trust-boundary line itself. */
+.lf-armed .lf-node {
+	opacity: 0;
+	transform: translateY(10px);
+}
+
+.lf-armed.lf-run .lf-node {
+	animation: lf-node-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+	animation-delay: var(--lf-delay, 0ms);
+}
+
+@keyframes lf-node-in {
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.lf-armed .lf-out {
+	opacity: 0;
+	transform: translateX(8px);
+}
+
+.lf-armed.lf-run .lf-out {
+	animation: lf-out-in 0.4s ease-out both;
+	animation-delay: var(--lf-delay, 0ms);
+}
+
+@keyframes lf-out-in {
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+/* SVG stroke self-draw (paths use pathLength="1" so units are normalized). */
+.lf-armed .lf-draw {
+	stroke-dasharray: 1;
+	stroke-dashoffset: 1;
+}
+
+.lf-armed.lf-run .lf-draw {
+	animation: lf-draw-in 0.55s ease-out both;
+	animation-delay: var(--lf-delay, 0ms);
+}
+
+@keyframes lf-draw-in {
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+.lf-armed .lf-label {
+	opacity: 0;
+}
+
+.lf-armed.lf-run .lf-label {
+	animation: lf-label-in 0.3s ease-out both;
+	animation-delay: var(--lf-delay, 0ms);
+}
+
+@keyframes lf-label-in {
+	to {
+		opacity: 1;
+	}
+}
+
+/* The dashed boundary + its tint appear only after the solid stroke has
+   drawn the outline, then the stroke fades away. */
+.lf-armed .lf-boundary {
+	border-color: transparent;
+	background-color: transparent;
+}
+
+.lf-armed.lf-run .lf-boundary {
+	animation: lf-boundary-in 0.35s ease-out both;
+	animation-delay: 1450ms;
+}
+
+.lf-armed.lf-run .lf-boundary-svg {
+	animation: lf-svg-out 0.25s ease-in both;
+	animation-delay: 1450ms;
+}
+
+@keyframes lf-boundary-in {
+	to {
+		border-color: var(--status-ready);
+		background-color: color-mix(in srgb, var(--status-ready) 5%, transparent);
+	}
+}
+
+@keyframes lf-svg-out {
+	to {
+		opacity: 0;
+	}
+}
+
 /* ── HUMAN / MACHINE mode ─────────────────────────────────────── */
 /* The toggle flips <html data-mode="machine">; CSS owns the swap so it is
    instant and survives without re-rendering either tree. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { useGitHubRepoFacts } from "../lib/use-github-repo-facts";
@@ -352,6 +352,23 @@ function HeroDashboardMockup() {
 		"revenue-portal": true,
 	});
 
+	// ── Card drag state (physics-based kanban demo) ─────────────────
+	// The mockup renders inside a CSS-scaled box, so pointer deltas are
+	// divided by the live scale factor to keep cards glued to the cursor.
+	const laptopRef = useRef<HTMLDivElement>(null);
+	const cardEls = useRef(new Map<string, HTMLElement>());
+	const flipRects = useRef(new Map<string, { left: number; top: number }>());
+	const dragRef = useRef<{
+		key: string;
+		title: string;
+		fromColumn: BoardColumnId;
+		startX: number;
+		startY: number;
+		moved: boolean;
+		hover: BoardColumnId | null;
+	} | null>(null);
+	const [dropTarget, setDropTarget] = useState<BoardColumnId | null>(null);
+
 	const selectedProject = projectsState.find((project) => project.id === activeProject);
 	const visibleCards = selectedProject ? selectedProject.cards : projectsState.flatMap((project) => project.cards);
 	const activeProjectLabel = selectedProject ? selectedProject.name : "All projects";
@@ -361,6 +378,156 @@ function HeroDashboardMockup() {
 		id: columnId,
 		cards: visibleCards.filter((card) => card.column === columnId),
 	}));
+
+	function reducedMotion() {
+		return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	}
+
+	function mockupScale() {
+		const el = laptopRef.current;
+		if (!el) return 1;
+		const width = el.getBoundingClientRect().width;
+		return el.offsetWidth > 0 && width > 0 ? width / el.offsetWidth : 1;
+	}
+
+	function captureCardRects() {
+		flipRects.current.clear();
+		cardEls.current.forEach((el, key) => {
+			const rect = el.getBoundingClientRect();
+			flipRects.current.set(key, { left: rect.left, top: rect.top });
+		});
+	}
+
+	// FLIP: after a card changes columns, every card animates from its previous
+	// position to its new one — smooth sibling reflow instead of an instant snap.
+	useLayoutEffect(() => {
+		if (flipRects.current.size === 0) return;
+		const previous = new Map(flipRects.current);
+		flipRects.current.clear();
+		cardEls.current.forEach((el, key) => {
+			const old = previous.get(key);
+			if (!old) return;
+			gsap.set(el, { x: 0, y: 0, scale: 1, zIndex: 0 });
+			const rect = el.getBoundingClientRect();
+			const dx = old.left - rect.left;
+			const dy = old.top - rect.top;
+			if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+			if (reducedMotion()) return;
+			gsap.fromTo(el, { x: dx, y: dy }, { x: 0, y: 0, duration: 0.32, ease: "power3.out" });
+		});
+	}, [projectsState, activeProject, activePanel]);
+
+	function onCardPointerDown(event: React.PointerEvent<HTMLElement>, card: BoardCard) {
+		if (event.button !== 0) return;
+		const key = `${card.branch}-${card.title}`;
+		dragRef.current = {
+			key,
+			title: card.title,
+			fromColumn: card.column,
+			startX: event.clientX,
+			startY: event.clientY,
+			moved: false,
+			hover: null,
+		};
+
+		const move = (e: PointerEvent) => {
+			const drag = dragRef.current;
+			if (!drag) return;
+			const scale = mockupScale();
+			const dx = (e.clientX - drag.startX) / scale;
+			const dy = (e.clientY - drag.startY) / scale;
+			if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+			drag.moved = true;
+			const el = cardEls.current.get(drag.key);
+			if (el) {
+				el.dataset.dragging = "true";
+				gsap.set(el, { x: dx, y: dy, scale: 1.02, zIndex: 30 });
+			}
+			// Hit-test columns in screen space (scale-independent).
+			let hover: BoardColumnId | null = null;
+			laptopRef.current?.querySelectorAll<HTMLElement>("[data-board-column]").forEach((columnEl) => {
+				const rect = columnEl.getBoundingClientRect();
+				if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+					hover = columnEl.dataset.boardColumn as BoardColumnId;
+				}
+			});
+			if (hover !== drag.hover) {
+				drag.hover = hover;
+				setDropTarget(hover);
+			}
+		};
+
+		const up = (e: PointerEvent) => {
+			window.removeEventListener("pointermove", move);
+			window.removeEventListener("pointerup", up);
+			const drag = dragRef.current;
+			dragRef.current = null;
+			setDropTarget(null);
+			if (!drag) return;
+			const el = cardEls.current.get(drag.key);
+			if (el) delete el.dataset.dragging;
+
+			if (!drag.moved) {
+				// Plain click — open the session terminal.
+				showTerminal(drag.title);
+				return;
+			}
+
+			const target = ((): BoardColumnId | null => {
+				let hover: BoardColumnId | null = null;
+				laptopRef.current?.querySelectorAll<HTMLElement>("[data-board-column]").forEach((columnEl) => {
+					const rect = columnEl.getBoundingClientRect();
+					if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+						hover = columnEl.dataset.boardColumn as BoardColumnId;
+					}
+				});
+				return hover;
+			})();
+
+			if (target && target !== drag.fromColumn) {
+				// Valid drop: move the card, FLIP animates everyone to place.
+				captureCardRects();
+				const statusFor: Record<BoardColumnId, { status: string; zone: SessionZone }> = {
+					working: { status: "Working", zone: "working" },
+					action: { status: "Needs input", zone: "warning" },
+					pending: { status: "Review pending", zone: "pending" },
+					merge: { status: "Ready", zone: "success" },
+				};
+				setProjectsState((current) =>
+					current.map((project) => ({
+						...project,
+						cards: project.cards.map((card) =>
+							`${card.branch}-${card.title}` === drag.key
+								? { ...card, column: target, ...statusFor[target] }
+								: card,
+						),
+					})),
+				);
+			} else {
+				// Dropped outside a valid column: spring back to the home cell.
+				if (el) {
+					if (reducedMotion()) {
+						gsap.set(el, { x: 0, y: 0, scale: 1, zIndex: 0 });
+					} else {
+						gsap.to(el, { x: 0, y: 0, scale: 1, zIndex: 0, duration: 0.5, ease: "elastic.out(1, 0.65)" });
+					}
+				}
+			}
+		};
+
+		window.addEventListener("pointermove", move);
+		window.addEventListener("pointerup", up);
+	}
+
+	function registerCard(key: string) {
+		return (el: HTMLElement | null) => {
+			if (el) {
+				cardEls.current.set(key, el);
+			} else {
+				cardEls.current.delete(key);
+			}
+		};
+	}
 
 	function showBoard(projectId: string) {
 		setActiveProject(projectId);
@@ -399,7 +566,11 @@ function HeroDashboardMockup() {
 	}
 
 	return (
-		<div className="hero-laptop relative mx-auto mt-6 w-full max-w-[1600px]" data-testid="hero-dashboard-interactive">
+		<div
+			ref={laptopRef}
+			className="hero-laptop relative mx-auto mt-6 w-full max-w-[1600px]"
+			data-testid="hero-dashboard-interactive"
+		>
 			<div className="hero-laptop-screen">
 				<div className="hero-laptop-display">
 					<div
@@ -608,28 +779,32 @@ function HeroDashboardMockup() {
 								{activePanel === "settings" ? (
 									<MockSettingsPanel activeProjectLabel={activeProjectLabel} />
 								) : activePanel === "terminal" ? (
-									<MockTerminalPanel activeProjectLabel={activeProjectLabel} title={terminalTitle} />
+									<DrawerReveal key={terminalTitle}>
+										<MockTerminalPanel activeProjectLabel={activeProjectLabel} title={terminalTitle} />
+									</DrawerReveal>
 								) : (
 									<div className="grid h-full grid-cols-4 gap-2">
-										{boardColumns.map((column) => (
-											<section
-												key={column.id}
-												className="flex min-w-0 flex-col overflow-hidden rounded-[13px]"
-												style={{
-													background: `linear-gradient(180deg, ${column.glow}, transparent 130px), rgba(255,255,255,0.028)`,
-												}}
-											>
-												<div className="flex shrink-0 items-center gap-[9px] px-[15px] pb-[11px] pt-[14px]">
-													<span
-														className={`h-[7px] w-[7px] rounded-full ${column.id === "pending" ? "" : "pulse-dot"}`}
-														style={{
-															background: column.color,
-															boxShadow:
-																column.id === "pending"
-																	? undefined
-																	: `0 0 7px color-mix(in srgb, ${column.color} 60%, transparent)`,
-														}}
-													/>
+									{boardColumns.map((column) => (
+										<section
+											key={column.id}
+											data-board-column={column.id}
+											className={`flex min-w-0 flex-col overflow-hidden rounded-[13px] ${dropTarget === column.id ? "board-column-drop" : ""}`}
+											style={{
+												background: `linear-gradient(180deg, ${column.glow}, transparent 130px), rgba(255,255,255,0.028)`,
+												["--drop-color" as string]: column.color,
+											}}
+										>
+											<div className="flex shrink-0 items-center gap-[9px] px-[15px] pb-[11px] pt-[14px]">
+												<span
+													className={`h-[7px] w-[7px] rounded-full ${column.id === "working" ? "pulse-dot" : ""}`}
+													style={{
+														background: column.color,
+														boxShadow:
+															column.id === "working"
+																? `0 0 7px color-mix(in srgb, ${column.color} 60%, transparent)`
+																: undefined,
+													}}
+												/>
 													<div
 														className="text-[11px] font-semibold uppercase tracking-[0.08em]"
 														style={{ color: column.color }}
@@ -642,28 +817,31 @@ function HeroDashboardMockup() {
 												</div>
 												<div className="min-h-0 flex-1 overflow-hidden px-[11px] pb-3">
 													<div className="flex flex-col gap-2.5">
-														{column.cards.map((card) => (
-															<button
-																key={`${card.branch}-${card.title}`}
-																type="button"
-																onClick={() => showTerminal(card.title)}
-																className="w-full rounded-[7px] border border-[rgba(255,255,255,0.06)] bg-[#15171b] text-left transition-colors hover:border-[rgba(255,255,255,0.10)]"
+												{column.cards.map((card) => (
+													<button
+														key={`${card.branch}-${card.title}`}
+														ref={registerCard(`${card.branch}-${card.title}`)}
+														type="button"
+														onPointerDown={(event) => onCardPointerDown(event, card)}
+														className="board-card w-full rounded-[7px] border border-[rgba(255,255,255,0.06)] bg-[#15171b] text-left transition-colors hover:border-[rgba(255,255,255,0.10)]"
+													>
+														<div className="flex items-center gap-2 px-[13px] pb-[9px] pt-3">
+															<span
+																className="inline-flex items-center gap-1.5 text-[11px] font-medium"
+																style={{
+																	color:
+																		card.status === "CI failed" ||
+																		card.status === "Blocked" ||
+																		card.status === "Needs input"
+																			? "#ee6a6a"
+																			: column.color,
+																}}
 															>
-																<div className="flex items-center gap-2 px-[13px] pb-[9px] pt-3">
-																	<span
-																		className="inline-flex items-center gap-1.5 text-[11px] font-medium"
-																		style={{
-																			color:
-																				card.status === "CI failed" ||
-																				card.status === "Blocked" ||
-																				card.status === "Needs input"
-																					? "#ee6a6a"
-																					: column.color,
-																		}}
-																	>
-																		<span className="pulse-dot h-[7px] w-[7px] rounded-full bg-current" />
-																		{card.status}
-																	</span>
+																<span
+																	className={`h-[7px] w-[7px] rounded-full bg-current ${card.status === "Working" ? "pulse-dot" : ""}`}
+																/>
+																{card.status}
+															</span>
 																	<span className="ml-auto shrink-0 font-mono text-[10.5px] tracking-[0.04em] text-[#646a73]">
 																		{card.agent}
 																	</span>
@@ -718,7 +896,97 @@ function HeroDashboardMockup() {
 	);
 }
 
+/**
+ * Terminal drawer: opens with a height auto-animation + slide-down instead of
+ * a hard cut. Skipped entirely for reduced-motion users.
+ */
+function DrawerReveal({ children }: { children: ReactNode }) {
+	const ref = useRef<HTMLDivElement>(null);
+
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		const tween = gsap.fromTo(
+			el,
+			{ height: 0, opacity: 0, y: -10 },
+			{
+				height: "auto",
+				opacity: 1,
+				y: 0,
+				duration: 0.38,
+				ease: "power3.out",
+				onComplete: () => gsap.set(el, { clearProps: "height,opacity,y" }),
+			},
+		);
+		return () => {
+			tween.kill();
+		};
+	}, []);
+
+	return (
+		<div ref={ref} className="h-full min-h-0 overflow-hidden">
+			{children}
+		</div>
+	);
+}
+
 function MockTerminalPanel({ activeProjectLabel, title }: { activeProjectLabel: string; title: string }) {
+	const worktree = `~/.ao/data/worktrees/${activeProjectLabel.toLowerCase().replaceAll(" ", "-")}`;
+	// Blocks type themselves in, one at a time, like real tty output.
+	const [visibleCount, setVisibleCount] = useState(0);
+	const BLOCK_TOTAL = 6;
+
+	const blocks: ReactNode[] = [
+		<div key="warn" className="text-[#f0c84b]">
+			⚠ `--dangerously-bypass-hook-trust` is enabled.
+		</div>,
+		<div key="codex" className="mt-4 rounded-[6px] border border-[rgba(255,255,255,0.22)] bg-[#17191d] p-4">
+			<div className="text-[13px] font-bold text-[#f4f5f7]">OpenAI Codex</div>
+			<div className="mt-4 grid grid-cols-[86px_1fr] gap-y-2">
+				<span className="text-[#858b95]">model:</span>
+				<span>
+					gpt-5.5 <span className="text-[#6ec8e8]">/model</span>
+				</span>
+				<span className="text-[#858b95]">directory:</span>
+				<span>{worktree}</span>
+				<span className="text-[#858b95]">permissions:</span>
+				<span className="font-semibold text-[#a98cff]">YOLO mode</span>
+			</div>
+		</div>,
+		<div key="open" className="mt-5 text-[#f4f5f7]">
+			› ao session open "{title}"
+		</div>,
+		<div key="ask" className="mt-2 text-[#9ba1aa]">
+			• What would you like me to do?
+		</div>,
+		<div key="input" className="mt-6">
+			<span className="text-[#f4f5f7]">› </span>
+			{visibleCount >= BLOCK_TOTAL ? <span className="typing-caret" /> : null}
+			<span className="text-[#858b95]"> Use /skills to list available skills</span>
+		</div>,
+		<div key="footer" className="mt-5 text-[#ffd28a]">
+			gpt-5.5 default · <span className="text-[#9bd39a]">{worktree}</span>
+		</div>,
+	];
+
+	const typing = visibleCount < blocks.length;
+
+	useEffect(() => {
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			setVisibleCount(blocks.length);
+			return;
+		}
+		let count = 0;
+		const id = window.setInterval(() => {
+			count += 1;
+			setVisibleCount(count);
+			if (count >= blocks.length) window.clearInterval(id);
+		}, 150);
+		return () => window.clearInterval(id);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
 	return (
 		<div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_270px] overflow-hidden rounded-[13px] border border-[rgba(255,255,255,0.07)] bg-[#0a0b0d]">
 			<div className="flex min-w-0 flex-col bg-[#15171b]">
@@ -740,33 +1008,16 @@ function MockTerminalPanel({ activeProjectLabel, title }: { activeProjectLabel: 
 					</div>
 				</div>
 				<div className="min-h-0 flex-1 overflow-hidden bg-[#15171b] p-4 font-mono text-[12px] leading-6 text-[#d5d7dc]">
-					<div className="text-[#f0c84b]">⚠ `--dangerously-bypass-hook-trust` is enabled.</div>
-					<div className="mt-4 rounded-[6px] border border-[rgba(255,255,255,0.22)] bg-[#17191d] p-4">
-						<div className="text-[13px] font-bold text-[#f4f5f7]">OpenAI Codex</div>
-						<div className="mt-4 grid grid-cols-[86px_1fr] gap-y-2">
-							<span className="text-[#858b95]">model:</span>
-							<span>
-								gpt-5.5 <span className="text-[#6ec8e8]">/model</span>
-							</span>
-							<span className="text-[#858b95]">directory:</span>
-							<span>~/.ao/data/worktrees/{activeProjectLabel.toLowerCase().replaceAll(" ", "-")}</span>
-							<span className="text-[#858b95]">permissions:</span>
-							<span className="font-semibold text-[#a98cff]">YOLO mode</span>
+					{blocks.slice(0, visibleCount).map((block, index) => (
+						<div key={index} className="terminal-block-in">
+							{block}
 						</div>
-					</div>
-					<div className="mt-5 text-[#f4f5f7]">› ao session open "{title}"</div>
-					<div className="mt-2 text-[#9ba1aa]">• What would you like me to do?</div>
-					<div className="mt-6">
-						<span className="text-[#f4f5f7]">› </span>
-						<span className="rounded-sm bg-[#5b8def] px-[3px] text-[#0a0b0d]"> </span>
-						<span className="text-[#858b95]"> Use /skills to list available skills</span>
-					</div>
-					<div className="mt-5 text-[#ffd28a]">
-						gpt-5.5 default ·{" "}
-						<span className="text-[#9bd39a]">
-							~/.ao/data/worktrees/{activeProjectLabel.toLowerCase().replaceAll(" ", "-")}
-						</span>
-					</div>
+					))}
+					{typing ? (
+						<div className="mt-1">
+							<span className="typing-caret" />
+						</div>
+					) : null}
 				</div>
 			</div>
 			<aside className="flex min-w-0 flex-col border-l border-[rgba(255,255,255,0.07)] bg-[#0d0f12]">

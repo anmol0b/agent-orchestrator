@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTypedOnView } from "../lib/use-typed-on-view";
 
 function CopyIcon({ className = "" }: { className?: string }) {
 	return (
@@ -64,6 +65,7 @@ export function CopyCommand({
 	label,
 	className = "",
 	nowrap = false,
+	typeOnView = false,
 }: {
 	command: string;
 	/** Accessible label, e.g. "brew install command". */
@@ -71,9 +73,12 @@ export function CopyCommand({
 	className?: string;
 	/** Keep the command on one line at >=640px (hero / final CTA). */
 	nowrap?: boolean;
+	/** Type the command in like a tty the first time it scrolls into view. */
+	typeOnView?: boolean;
 }) {
 	const [copied, setCopied] = useState(false);
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const typed = useTypedOnView(command);
 
 	useEffect(() => {
 		return () => {
@@ -92,6 +97,7 @@ export function CopyCommand({
 	return (
 		<button
 			type="button"
+			ref={typeOnView ? (typed.hostRef as React.RefObject<HTMLButtonElement>) : undefined}
 			onClick={onCopy}
 			aria-label={copied ? "Copied to clipboard" : `Copy ${label ?? "command"}: ${command}`}
 			title={copied ? "Copied" : "Click to copy"}
@@ -100,7 +106,10 @@ export function CopyCommand({
 			<span className="copy-command-dollar" aria-hidden="true">
 				$
 			</span>
-			<code className="copy-command-text">{command}</code>
+			<code className="copy-command-text">
+				{typeOnView ? typed.display : command}
+				{typeOnView && typed.typing ? <span className="typing-caret" aria-hidden="true" /> : null}
+			</code>
 			<span className="copy-command-action" aria-hidden="true">
 				{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
 				<span className="copy-command-action-label">{copied ? "Copied" : "Copy"}</span>

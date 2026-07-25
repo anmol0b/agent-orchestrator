@@ -3,9 +3,30 @@
 import Link from "next/link";
 import { DESKTOP_DOWNLOADS } from "../lib/desktop-downloads";
 import { useDownloadTarget, useIsMacDesktop } from "../lib/use-download-target";
+import { useTypedOnView } from "../lib/use-typed-on-view";
 import { CopyCommand } from "./CopyCommand";
 
 const BREW_INSTALL_COMMAND = "brew install --cask agentwrapper/tap/agent-orchestrator";
+
+const ORCHESTRATOR_PROMPT = "“Go through my Linear backlog and let’s brainstorm what tasks to spawn.”";
+
+/** The step-3 prompt types itself like something you'd actually say to the
+ *  orchestrator — same tty typing language as the command blocks. */
+function TypedPrompt() {
+	const typed = useTypedOnView(ORCHESTRATOR_PROMPT, 16);
+	return (
+		<div
+			ref={typed.hostRef as React.RefObject<HTMLDivElement>}
+			className="rounded-md border border-[color:var(--border)] bg-[color:var(--bg-deep)] px-4 py-3 text-[13px] leading-relaxed text-[color:var(--fg-muted)]"
+		>
+			<span className="text-[color:var(--fg-dim)]">You → </span>
+			<span className="italic text-[color:var(--fg)]">
+				{typed.display}
+				{typed.typing ? <span className="typing-caret" aria-hidden="true" /> : null}
+			</span>
+		</div>
+	);
+}
 
 function DownloadIcon({ className = "" }: { className?: string }) {
 	return (
@@ -88,7 +109,7 @@ export function LandingInstall() {
 							</p>
 							<div className="mt-auto flex flex-col gap-2.5 pt-5">
 								{mac ? (
-									<CopyCommand command={BREW_INSTALL_COMMAND} label="brew install command" className="w-full" />
+									<CopyCommand command={BREW_INSTALL_COMMAND} label="brew install command" typeOnView className="w-full" />
 								) : null}
 								<div className="flex flex-wrap gap-2">
 									{DESKTOP_DOWNLOADS.map((download) => {
@@ -131,7 +152,7 @@ export function LandingInstall() {
 								That's the whole setup.
 							</p>
 							<div className="mt-auto flex flex-col gap-2.5 pt-5">
-								<CopyCommand command="gh auth login" label="GitHub CLI login command" className="w-full" />
+								<CopyCommand command="gh auth login" label="GitHub CLI login command" typeOnView className="w-full" />
 							</div>
 						</div>
 
@@ -153,12 +174,7 @@ export function LandingInstall() {
 								and you watch the PRs land on the board.
 							</p>
 							<div className="mt-auto flex flex-col gap-2.5 pt-5">
-								<div className="rounded-md border border-[color:var(--border)] bg-[color:var(--bg-deep)] px-4 py-3 text-[13px] leading-relaxed text-[color:var(--fg-muted)]">
-									<span className="text-[color:var(--fg-dim)]">You → </span>
-									<span className="italic text-[color:var(--fg)]">
-										“Go through my Linear backlog and let’s brainstorm what tasks to spawn.”
-									</span>
-								</div>
+								<TypedPrompt />
 								<Link
 									href="/docs/quickstart"
 									className="group inline-flex items-center gap-1.5 pt-1 text-[12.5px] font-medium text-[color:var(--accent)]"

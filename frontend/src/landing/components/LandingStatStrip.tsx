@@ -50,7 +50,7 @@ export function LandingStatStrip() {
 									index === 3 ? "max-lg:border-t max-lg:border-[color:var(--border)]" : ""
 								}`}
 							>
-								<span className="text-[26px] font-semibold leading-none tracking-[-0.02em] text-[color:var(--fg)] transition-colors group-hover:text-[color:var(--accent)] sm:text-[30px]">
+								<span className="whitespace-nowrap text-[21px] font-semibold leading-none tracking-[-0.02em] text-[color:var(--fg)] transition-colors group-hover:text-[color:var(--accent)] sm:text-[26px] lg:text-[30px]">
 									{stat.value}
 								</span>
 								<span className="font-mono text-[10.5px] uppercase leading-relaxed tracking-[0.14em] text-[color:var(--fg-dim)]">

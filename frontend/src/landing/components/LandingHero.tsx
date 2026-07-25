@@ -1071,26 +1071,26 @@ export function LandingHero() {
 			if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
 			const ctx = gsap.context(() => {
-				const tl = gsap.timeline({ defaults: { ease: "power4.out" } });
+				// One quick staggered pass on load (~60ms offset, 350ms ease-out),
+				// then the board scales in — nothing loops, nothing bounces.
+				const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
-				// Initial state
-				gsap.set(".gsap-reveal", { y: 40, opacity: 0 });
-				gsap.set(".gsap-scale", { scale: 0.95, opacity: 0 });
+				gsap.set(".gsap-reveal", { y: 24, opacity: 0 });
+				gsap.set(".gsap-scale", { scale: 0.97, opacity: 0 });
 
 				tl.to(".gsap-reveal", {
 					y: 0,
 					opacity: 1,
-					duration: 1.2,
-					stagger: 0.15,
+					duration: 0.35,
+					stagger: 0.06,
 				}).to(
 					".gsap-scale",
 					{
 						scale: 1,
 						opacity: 1,
-						duration: 1.2,
-						ease: "elastic.out(1, 0.75)",
+						duration: 0.55,
 					},
-					"-=0.8",
+					"-=0.2",
 				);
 			}, containerRef);
 
@@ -1203,6 +1203,13 @@ export function LandingHero() {
 								className="w-full sm:w-auto"
 							/>
 						) : null}
+					</div>
+
+					{/* The one always-on live element: the daemon is a real running
+					    process, so its indicator actually pulses. */}
+					<div className="gsap-reveal mt-4 flex items-center justify-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[color:var(--fg-dim)]">
+						<span className="pulse-dot h-1.5 w-1.5 rounded-full bg-[color:var(--status-ready)]" aria-hidden="true" />
+						ao daemon · 127.0.0.1 · live
 					</div>
 				</div>
 

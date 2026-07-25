@@ -179,6 +179,9 @@ describe("SessionsBoard", () => {
 		const terminateButton = within(idleCard).getByRole("button", { name: "Terminate brand-font-pipeline" });
 		expect(terminateButton).toHaveClass("opacity-0", "group-hover:opacity-100", "group-focus-within:opacity-100");
 		expect(terminateButton.querySelector("svg")).toHaveClass("lucide-trash-2");
+		expect(within(idleCard).getByText("Idle").parentElement).toHaveClass("pb-1.5", "pt-2");
+		expect(within(idleCard).getByText("brand-font-pipeline")).toHaveClass("pb-1");
+		expect(within(idleCard).getByText("no PR yet")).toHaveClass("py-1.25");
 	});
 
 	it("copies visible branch names and PR URLs without opening the session", async () => {
@@ -314,7 +317,7 @@ describe("SessionsBoard", () => {
 		renderBoard("p1");
 
 		const needsYouColumn = screen.getByText("Needs you").closest("section") as HTMLElement;
-		expect(needsYouColumn.firstElementChild).toHaveClass("pb-2.5");
+		expect(needsYouColumn.firstElementChild).toHaveClass("py-2");
 		expect(within(needsYouColumn).getByText("agent-exited-task")).toBeInTheDocument();
 		expect(within(needsYouColumn).getByText("Exited").closest("span")).toHaveClass("text-status-exited");
 	});
@@ -554,6 +557,7 @@ describe("SessionsBoard", () => {
 		await userEvent.click(screen.getByRole("button", { name: /archive/i }));
 
 		const archive = screen.getByRole("list", { name: "Archived sessions" });
+		expect(archive).toHaveClass("board-scrollbar", "overflow-y-auto");
 		const terminatedCard = within(archive).getByText("dead worker").closest<HTMLElement>("[role='listitem']");
 		expect(terminatedCard).not.toBeNull();
 		expect(within(terminatedCard!).queryByRole("button", { name: "Open dead worker" })).not.toBeInTheDocument();
@@ -880,7 +884,7 @@ describe("SessionsBoard", () => {
 		expect(screen.queryByRole("button", { name: /archive/i })).not.toBeInTheDocument();
 	});
 
-	it("keeps every Kanban lane scrollable without visible scrollbar chrome", () => {
+	it("uses the shared minimal scrollbar styling for every Kanban lane", () => {
 		workspaceQueryMock.mockReturnValue({
 			data: [
 				workspaceWithSessions([
@@ -903,7 +907,7 @@ describe("SessionsBoard", () => {
 			.flatMap((column) => Array.from(column.querySelectorAll<HTMLElement>(".overflow-y-auto")));
 		expect(laneScrollers).toHaveLength(6);
 		for (const scroller of laneScrollers) {
-			expect(scroller).toHaveClass("scrollbar-none", "overflow-y-auto");
+			expect(scroller).toHaveClass("board-scrollbar", "overflow-y-auto");
 		}
 	});
 

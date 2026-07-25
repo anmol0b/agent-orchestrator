@@ -870,6 +870,12 @@ body::-webkit-scrollbar,
 	animation: pulse-dot 2s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+	.pulse-dot {
+		animation: none;
+	}
+}
+
 @keyframes caret-blink {
 	0%,
 	49% {
@@ -1263,6 +1269,69 @@ body::-webkit-scrollbar,
 .landing-graph-pulse {
 	transform-box: fill-box;
 	animation: landing-graph-pulse 1.5s ease-out infinite;
+}
+
+/* ── Live board motion ────────────────────────────────────────── */
+/* Blinking terminal caret: visible at all times while lines type in, then
+   rests at the prompt — like a real tty. */
+.typing-caret {
+	display: inline-block;
+	width: 7px;
+	height: 13px;
+	background: var(--status-working);
+	vertical-align: -2px;
+	animation: caret-blink 1.05s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.typing-caret {
+		animation: none;
+	}
+}
+
+/* Subtle per-block reveal while terminal content "types" itself. */
+@keyframes terminal-block-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.terminal-block-in {
+	animation: terminal-block-in 0.24s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.terminal-block-in {
+		animation: none;
+	}
+}
+
+/* Draggable board cards. */
+.board-card {
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.board-card:active {
+	cursor: grabbing;
+}
+
+.board-card[data-dragging="true"] {
+	cursor: grabbing;
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* Column highlighted as a valid drop target. */
+.board-column-drop {
+	outline: 1.5px dashed var(--drop-color, var(--border-strong));
+	outline-offset: -1.5px;
 }
 
 /* ── HUMAN / MACHINE mode ─────────────────────────────────────── */

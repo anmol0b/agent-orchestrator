@@ -384,7 +384,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 						<div
 							aria-label="Archived sessions"
 							className={cn(
-								"max-h-[45vh] overflow-y-auto pb-3",
+								"board-scrollbar max-h-[45vh] overflow-y-auto pb-3",
 								archiveLayout === "grid" && "grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-2",
 							)}
 							role="list"
@@ -467,7 +467,7 @@ function ZoneColumn({
 				background: `linear-gradient(180deg, ${col.glow}, transparent var(--size-kanban-glow)), var(--color-overlay-subtle)`,
 			}}
 		>
-			<div className="flex shrink-0 items-center gap-2 px-3 pb-2.5 pt-2.5">
+			<div className="flex shrink-0 items-center gap-2 px-3 py-2">
 				<span
 					className="size-dot-sm rounded-full"
 					style={{
@@ -480,7 +480,7 @@ function ZoneColumn({
 				</span>
 				<span className="ml-auto font-mono text-sm leading-none text-passive">{sessions.length}</span>
 			</div>
-			<div className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+			<div className="board-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 				<div className="flex min-h-full flex-col gap-2">
 					{sessions.map((session) => (
 						<SessionCard
@@ -653,7 +653,7 @@ function SplitLaneColumn({
 					<div
 						aria-label={primaryTone.regionLabel}
 						className={cn(
-							"scrollbar-none min-h-0 overflow-y-auto px-2",
+							"board-scrollbar min-h-0 overflow-y-auto px-2",
 							showSecondary ? "flex-[3] pb-2" : "flex-1 pb-2",
 						)}
 						role="region"
@@ -731,7 +731,7 @@ function SecondaryLaneSection({
 				</div>
 				<span className="ml-auto font-mono text-caption leading-none text-passive">{sessions.length}</span>
 			</div>
-			<div className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+			<div className="board-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 				<div className="flex min-h-full flex-col gap-2">
 					{sessions.map((session) => (
 						<SessionCard
@@ -810,7 +810,7 @@ function SessionCard({
 				</button>
 			) : null}
 			<div {...cardBodyProps}>
-				<div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
+				<div className="flex items-center gap-2 px-3 pb-1.5 pt-2">
 					<span className={cn("inline-flex items-center gap-1.5 text-caption font-medium", badge.className)}>
 						<span className={cn("size-dot-sm rounded-full bg-current")} />
 						{badge.label}
@@ -832,7 +832,7 @@ function SessionCard({
 				<div
 					className={cn(
 						"px-3 text-control font-medium leading-snug tracking-tight text-foreground",
-						showBranch ? "pb-1.5" : "pb-2.5",
+						showBranch ? "pb-1" : "pb-2",
 						"line-clamp-2 overflow-hidden",
 					)}
 				>
@@ -841,7 +841,7 @@ function SessionCard({
 			</div>
 			{showBranch && (
 				<div
-					className="flex min-w-0 items-center gap-1 px-3 pb-2 font-mono text-2xs text-passive"
+					className="flex min-w-0 items-center gap-1 px-3 pb-1.5 font-mono text-2xs text-passive"
 					onClick={interactive ? onOpen : undefined}
 				>
 					<span className="truncate">{branch}</span>
@@ -849,7 +849,7 @@ function SessionCard({
 				</div>
 			)}
 			<div aria-hidden="true" className="mx-3 my-px h-px bg-border" />
-			<div className="px-3 py-1.5 font-mono text-2xs text-passive">
+			<div className="px-3 py-1.25 font-mono text-2xs text-passive">
 				{prSummaries.length === 0 ? (
 					"no PR yet"
 				) : (

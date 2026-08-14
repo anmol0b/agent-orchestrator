@@ -21,6 +21,7 @@ const (
 	MsgStatusReq     byte = 0x06 // client -> host: empty
 	MsgStatusRes     byte = 0x07 // host -> client: JSON {alive, pid, exitCode?}
 	MsgKillReq       byte = 0x08 // client -> host: empty
+	MsgClearReq      byte = 0x09 // client -> host: empty; clears the scrollback ring
 )
 
 // JSON payload structs shared with later tasks (kept minimal).

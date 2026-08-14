@@ -34,6 +34,9 @@ type wsConn interface {
 const (
 	defaultHeartbeat   = 15 * time.Second
 	defaultWriteBuffer = 1024
+	// clearHistoryTimeout bounds a clear-history runtime command so a stuck
+	// adapter cannot stall the connection's read loop.
+	clearHistoryTimeout = 5 * time.Second
 )
 
 // Manager serves WebSocket clients, opening one attach Stream per opened pane
@@ -410,6 +413,24 @@ func (c *connState) handleTerminal(msg clientMsg) {
 		c.mgr.updateTerminalSize(msg.ID, c, msg.Cols, msg.Rows, msg.Force)
 	case msgClose:
 		c.closeTerminal(msg.ID)
+	case msgClear:
+		// Truncate the runtime pane's scrollback so a later attach cannot
+		// replay pre-clear output. A control frame, not input: no session-input
+		// lease. Dropped like msgData when this conn has no such pane.
+		if a := c.lookup(msg.ID); a != nil {
+			clearCtx, cancel := context.WithTimeout(c.mgr.ctx, clearHistoryTimeout)
+			err := c.mgr.src.ClearHistory(clearCtx, ports.RuntimeHandle{ID: msg.ID})
+			cancel()
+			if err != nil {
+				c.mgr.log.Warn("terminal clear history failed", "id", msg.ID, "error", err)
+				c.enqueue(serverMsg{
+					Ch:    chTerminal,
+					ID:    msg.ID,
+					Type:  msgError,
+					Error: "clear failed: " + err.Error(),
+				})
+			}
+		}
 	}
 }
 

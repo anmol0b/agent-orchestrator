@@ -129,3 +129,11 @@ func capturePaneArgs(id string, lines int) []string {
 func capturePaneStyledArgs(id string, lines int) []string {
 	return []string{"capture-pane", "-e", "-t", id, "-p", "-S", fmt.Sprintf("-%d", lines)}
 }
+
+// clearHistoryArgs builds args for `tmux clear-history -t <id>:0.0`, dropping
+// the pane's scrollback history so a later attach replays nothing. The live
+// screen and the running process are untouched. Pane-targeting syntax (see
+// respawnPaneArgs), so no `=` prefix.
+func clearHistoryArgs(id string) []string {
+	return []string{"clear-history", "-t", id + ":0.0"}
+}

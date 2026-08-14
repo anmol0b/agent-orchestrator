@@ -591,6 +591,38 @@ func TestGetOutputReq(t *testing.T) {
 	}
 }
 
+// TestClearReq: MsgClearReq empties the ring with no response frame; a
+// follow-up GetOutput on the same ordered connection observes the empty ring,
+// which is also what a fresh client's scrollback replay would see.
+func TestClearReq(t *testing.T) {
+	f := startServe(t, 108)
+	defer f.cancel()
+
+	f.ring.Append([]byte("stale output\n"))
+
+	c := newTestClient(t, f.addr)
+	defer c.close()
+
+	// Drain the scrollback replay.
+	c.readFrame(t)
+
+	if err := c.send(MsgClearReq, nil); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	reqPayload, _ := json.Marshal(GetOutputReq{Lines: 10})
+	if err := c.send(MsgGetOutputReq, reqPayload); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	typ, payload := c.readFrame(t)
+	if typ != MsgGetOutputRes {
+		t.Fatalf("got type 0x%02x, want MsgGetOutputRes", typ)
+	}
+	if len(payload) != 0 {
+		t.Fatalf("GetOutputRes after clear = %q, want empty", payload)
+	}
+}
+
 // TestStatusReq_AliveAndExited: MsgStatusReq returns alive:true while running;
 // after the PTY exits, returns alive:false with exitCode. Listener stays open.
 func TestStatusReq_AliveAndExited(t *testing.T) {

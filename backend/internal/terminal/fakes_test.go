@@ -12,7 +12,8 @@ import (
 
 // fakeSource is a scripted terminal Source: Attach hands out fake Streams from
 // an embedded spawner (or a custom attachFn closure); IsAlive is scriptable.
-// attachErr makes Attach fail.
+// attachErr makes Attach fail. ClearHistory records calls (clearErr scripts a
+// failure).
 type fakeSource struct {
 	spawner   *fakeSpawner
 	attachFn  func(ctx context.Context, rows, cols uint16) (ports.Stream, error)
@@ -20,6 +21,8 @@ type fakeSource struct {
 	alive     bool
 	aliveErr  error
 	attachErr error
+	clearIDs  []string
+	clearErr  error
 }
 
 func (f *fakeSource) Attach(ctx context.Context, _ ports.RuntimeHandle, rows, cols uint16) (ports.Stream, error) {
@@ -52,6 +55,20 @@ func (f *fakeSource) setAliveResult(v bool, err error) {
 	f.alive = v
 	f.aliveErr = err
 	f.mu.Unlock()
+}
+
+func (f *fakeSource) ClearHistory(_ context.Context, handle ports.RuntimeHandle) error {
+	f.mu.Lock()
+	f.clearIDs = append(f.clearIDs, handle.ID)
+	err := f.clearErr
+	f.mu.Unlock()
+	return err
+}
+
+func (f *fakeSource) clearHistoryCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.clearIDs...)
 }
 
 // fakePTY is a scripted ports.Stream: Read drains the out channel, Write

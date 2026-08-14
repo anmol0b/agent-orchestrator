@@ -69,6 +69,21 @@ export type XtermTerminalProps = {
 	onError?: (error: unknown) => void;
 	/** Called after a terminal hyperlink is opened in the OS browser. */
 	onLinkOpen?: (uri: string) => void;
+	/**
+	 * The user cleared the terminal. The local xterm buffer is already cleared
+	 * above for instant feedback; the owner forwards this through the mux so
+	 * the pane's server-side scrollback is truncated too, keeping a later
+	 * attach/resize from replaying the cleared output.
+	 */
+	onClear?: () => void;
+	/**
+	 * The user chose "Clear conversation": the owner runs the provider's own
+	 * reset command (e.g. /clear) through the pane — agent TUIs repaint their
+	 * transcript from their own memory, so this is the only clear that keeps
+	 * those panes empty. Only provided when the pane's provider supports it;
+	 * the menu item is hidden otherwise.
+	 */
+	onClearConversation?: () => void;
 	/** Publish the positive grid after a retained terminal becomes visible. */
 	onVisibleSize?: (cols: number, rows: number) => void;
 	/** Hidden retained terminals keep parsing output but expose no UI overlays. */
@@ -230,7 +245,7 @@ type TerminalContextMenuState = {
 	link: string | null;
 };
 
-type TerminalContextMenuAction = "copy" | "paste" | "selectAll" | "clear";
+type TerminalContextMenuAction = "copy" | "paste" | "selectAll" | "clear" | "clearConversation";
 
 type TerminalContextMenuActions = Record<TerminalContextMenuAction, () => void>;
 
@@ -506,8 +521,20 @@ export function XtermTerminal(props: XtermTerminalProps) {
 		};
 		contextMenuActionsRef.current = {
 			clear: () => {
+				// term.clear() (not reset(): reset would drop the modes the
+				// runtime negotiated in its attach handshake — bracketed paste,
+				// mouse tracking). The local buffer empties instantly; the
+				// owner then truncates the server-side scrollback via onClear.
 				term.clear();
 				focusTerminal();
+				callbacksRef.current.onClear?.();
+			},
+			clearConversation: () => {
+				// Destructive: clears the agent's conversation and context.
+				// The owner has already confirmed; it sends the provider's own
+				// reset command through the pane.
+				focusTerminal();
+				callbacksRef.current.onClearConversation?.();
 			},
 			copy: () => {
 				copySelection();
@@ -1057,6 +1084,11 @@ export function XtermTerminal(props: XtermTerminalProps) {
 					<DropdownMenuItem onSelect={() => runContextMenuAction("selectAll")}>{t("titlebar.selectAll")}</DropdownMenuItem>
 					<DropdownMenuSeparator />
 					<DropdownMenuItem onSelect={() => runContextMenuAction("clear")}>{t("terminal.clear")}</DropdownMenuItem>
+				{props.onClearConversation ? (
+					<DropdownMenuItem onSelect={() => runContextMenuAction("clearConversation")}>
+						{t("terminal.clearConversation")}
+					</DropdownMenuItem>
+				) : null}
 					{props.onToggleFullscreen ? (
 						<DropdownMenuItem
 							onSelect={() => {

@@ -10,14 +10,19 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
-// Source is what the terminal needs from the runtime: open an attach Stream and
-// a liveness check used to decide whether a dropped Stream should be re-attached
-// or treated as a clean exit. The runtime adapters (tmux/conpty) satisfy
-// it via Attach/IsAlive; the interface lives here, next to its only consumer, so
+// Source is what the terminal needs from the runtime: open an attach Stream, a
+// liveness check used to decide whether a dropped Stream should be re-attached
+// or treated as a clean exit, and scrollback truncation for the client's clear
+// action. The runtime adapters (tmux/conpty) satisfy it via Attach/IsAlive/
+// ClearHistory; the interface lives here, next to its only consumer, so
 // terminal does not depend on a concrete adapter.
 type Source interface {
 	ports.Attacher
 	IsAlive(ctx context.Context, handle ports.RuntimeHandle) (bool, error)
+	// ClearHistory drops the pane's buffered scrollback (tmux history, conpty
+	// ring) so a later attach replays nothing. The live screen and the running
+	// process are untouched.
+	ClearHistory(ctx context.Context, handle ports.RuntimeHandle) error
 }
 
 // reattach policy: a Stream that drops is re-attached while the underlying

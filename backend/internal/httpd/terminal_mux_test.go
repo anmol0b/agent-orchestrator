@@ -38,6 +38,10 @@ func (s *stubSource) IsAlive(context.Context, ports.RuntimeHandle) (bool, error)
 	return !s.attached.Load(), nil
 }
 
+func (s *stubSource) ClearHistory(context.Context, ports.RuntimeHandle) error {
+	return nil
+}
+
 type terminalMuxFrame struct {
 	Ch   string `json:"ch"`
 	ID   string `json:"id"`

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	base64ToBytes,
 	bytesToBase64,
+	clearFrame,
 	closeFrame,
 	createTerminalMux,
 	createTerminalMuxPool,
@@ -42,6 +43,10 @@ describe("terminal-mux framing", () => {
 			force: true,
 		});
 		expect(JSON.parse(closeFrame("s"))).toEqual({ ch: "terminal", type: "close", id: "s" });
+	});
+
+	it("encodes a clear frame carrying only the pane id", () => {
+		expect(JSON.parse(clearFrame("s"))).toEqual({ ch: "terminal", type: "clear", id: "s" });
 	});
 
 	it("derives the ws mux url from the http api base (root path, not /api/v1)", () => {
@@ -101,6 +106,18 @@ describe("createTerminalMux client", () => {
 		expect(socket.sent).toHaveLength(0); // not open yet → queued
 		socket.emitOpen();
 		expect(JSON.parse(socket.sent[0])).toMatchObject({ type: "open", id: "s" });
+	});
+
+	it("sends a clear frame for the pane over the open socket", () => {
+		const mux = createTerminalMux("ws://x/mux", FakeSocket as unknown as typeof WebSocket);
+		const socket = FakeSocket.instances.at(-1)!;
+		socket.emitOpen();
+		mux.clear("s");
+		expect(socket.sent.map((frame) => JSON.parse(frame))).toContainEqual({
+			ch: "terminal",
+			type: "clear",
+			id: "s",
+		});
 	});
 
 	it("routes server data frames to the matching id listener as bytes", () => {

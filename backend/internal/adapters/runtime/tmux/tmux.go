@@ -696,6 +696,20 @@ func (r *Runtime) GetStyledOutput(ctx context.Context, handle ports.RuntimeHandl
 	return tailLines(trimTrailingBlankLines(string(out)), lines), nil
 }
 
+// ClearHistory drops the session pane's scrollback history so a later attach
+// cannot replay pre-clear output. The live screen and the running process are
+// untouched.
+func (r *Runtime) ClearHistory(ctx context.Context, handle ports.RuntimeHandle) error {
+	id, err := handleID(handle)
+	if err != nil {
+		return err
+	}
+	if _, err := r.run(ctx, clearHistoryArgs(id)...); err != nil {
+		return fmt.Errorf("tmux runtime: clear history %s: %w", id, err)
+	}
+	return nil
+}
+
 // Attach opens a fresh attach Stream by spawning `tmux attach-session` on a
 // local PTY, sized rows x cols from birth when known. ctx cancellation closes
 // the PTY.

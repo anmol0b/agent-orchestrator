@@ -228,6 +228,90 @@ func TestSupervisorProcessHelper(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
+// TestRuntimeIntegrationClearHistory verifies ClearHistory drops the pane's
+// scrollback history — the part a fresh attach replays — while the running
+// pane stays alive and interactive.
+func TestRuntimeIntegrationClearHistory(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux unavailable")
+	}
+
+	ctx := context.Background()
+	id := strings.ReplaceAll(t.Name(), "/", "_")
+	r := New(Options{Timeout: 5 * time.Second})
+	_ = r.Destroy(ctx, ports.RuntimeHandle{ID: id})
+	t.Cleanup(func() { _ = r.Destroy(context.Background(), ports.RuntimeHandle{ID: id}) })
+
+	// 120 numbered lines into a 50-row pane: lines 1..~70 land in history,
+	// the tail stays on the visible screen.
+	h, err := r.Create(ctx, ports.RuntimeConfig{
+		SessionID:     domain.SessionID(id),
+		WorkspacePath: t.TempDir(),
+		Argv:          []string{"sh", "-c", "seq 1 120"},
+		Env:           map[string]string{"AO_SESSION_ID": id},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	hasLine := func(out, line string) bool {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.TrimSpace(l) == line {
+				return true
+			}
+		}
+		return false
+	}
+
+	// waitForOutput samples the last 50 lines (the screen); capture the full
+	// window separately to prove the early lines are in history pre-clear.
+	_ = waitForOutput(t, r, h, "120", 5*time.Second)
+	out, err := r.GetOutput(ctx, h, 200)
+	if err != nil {
+		t.Fatalf("GetOutput: %v", err)
+	}
+	if !hasLine(out, "5") || !hasLine(out, "120") {
+		t.Fatalf("pre-clear output missing history/screen lines: %q", out)
+	}
+
+	if err := r.ClearHistory(ctx, h); err != nil {
+		t.Fatalf("ClearHistory: %v", err)
+	}
+
+	// History is gone; the visible screen tail remains. Give the capture a
+	// moment to reflect the clear, then require old history lines to stay absent.
+	var post string
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		post, err = r.GetOutput(ctx, h, 200)
+		if err != nil {
+			t.Fatalf("GetOutput: %v", err)
+		}
+		if !hasLine(post, "5") || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if hasLine(post, "5") {
+		t.Fatalf("history line 5 still capturable after ClearHistory: %q", post)
+	}
+	if !hasLine(post, "120") {
+		t.Fatalf("live screen tail missing after ClearHistory: %q", post)
+	}
+
+	// The pane is still interactive after the clear.
+	if alive, err := r.IsAlive(ctx, h); err != nil || !alive {
+		t.Fatalf("alive after ClearHistory = (%v, %v), want (true, nil)", alive, err)
+	}
+	if err := r.SendMessage(ctx, h, "echo after-clear"); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	out = waitForOutput(t, r, h, "after-clear", 5*time.Second)
+	if !strings.Contains(out, "after-clear") {
+		t.Fatalf("output after clear = %q, want after-clear", out)
+	}
+}
+
 // waitForOutput polls GetOutput until out contains want or the deadline passes.
 func waitForOutput(t *testing.T, r *Runtime, h ports.RuntimeHandle, want string, deadline time.Duration) string {
 	t.Helper()

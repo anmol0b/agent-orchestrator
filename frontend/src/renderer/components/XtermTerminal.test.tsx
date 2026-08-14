@@ -422,7 +422,8 @@ describe("XtermTerminal", () => {
 	});
 
 	it("runs context menu copy, select all, and clear against the xterm instance", async () => {
-		const { container } = render(<XtermTerminal theme="dark" />);
+		const onClear = vi.fn();
+		const { container } = render(<XtermTerminal theme="dark" onClear={onClear} />);
 		const host = container.firstElementChild!;
 		state.lastTerminal!.selection = "menu copy";
 
@@ -437,7 +438,30 @@ describe("XtermTerminal", () => {
 
 		fireEvent.contextMenu(host);
 		fireEvent.click(await screen.findByText("Clear"));
+		// The local xterm buffer clears for instant feedback, then the owner is
+		// told to truncate the pane's server-side scrollback via the mux.
 		expect(state.lastTerminal!.clear).toHaveBeenCalled();
+		expect(onClear).toHaveBeenCalledOnce();
+	});
+
+	it("runs clear conversation through the owner when the provider supports it", async () => {
+		const onClearConversation = vi.fn();
+		const { container } = render(
+			<XtermTerminal theme="dark" onClearConversation={onClearConversation} />,
+		);
+		const host = container.firstElementChild!;
+
+		fireEvent.contextMenu(host);
+		fireEvent.click(await screen.findByText("Clear conversation…"));
+		expect(onClearConversation).toHaveBeenCalledOnce();
+		expect(state.lastTerminal!.focus).toHaveBeenCalled();
+	});
+
+	it("hides the clear conversation action when the owner does not provide it", async () => {
+		const { container } = render(<XtermTerminal theme="dark" />);
+		fireEvent.contextMenu(container.firstElementChild!);
+		await screen.findByText("Clear");
+		expect(screen.queryByText("Clear conversation…")).toBeNull();
 	});
 
 	it("pastes from the context menu through the terminal paste path", async () => {

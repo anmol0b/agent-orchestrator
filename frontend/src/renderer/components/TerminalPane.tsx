@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import * as Dialog from "@radix-ui/react-dialog";
 import { RotateCcw } from "lucide-react";
 import {
 	createContext,
@@ -24,6 +25,7 @@ import {
 } from "../hooks/useTerminalSession";
 import { useSessionBrowserLink } from "../hooks/useSessionBrowserLink";
 import { getApiBaseUrl } from "../lib/api-client";
+import { clearConversationCommand } from "../lib/agent-tui";
 import {
 	createTerminalMux,
 	createTerminalMuxPool,
@@ -37,6 +39,12 @@ import { useRestoreSession } from "../hooks/useRestoreSession";
 import { useShellTerminals } from "../hooks/useShellTerminals";
 import { XtermTerminal } from "./XtermTerminal";
 import { RestoreUnavailableDialog } from "./RestoreUnavailableDialog";
+import { Button } from "./ui/button";
+import {
+	settingsDialogContentClass,
+	settingsDialogFooterClass,
+	settingsDialogHeaderClass,
+} from "./ui/dialog";
 
 type TerminalPaneProps = {
 	session?: WorkspaceSession;
@@ -920,7 +928,7 @@ function AttachedTerminal({
 	// A shell pane has no session, so it hands the hook its handle directly
 	// instead of reading one off `attachSession`.
 	const shellTerminalHandleId = terminalTarget?.kind === "shell" ? terminalTarget.handleId : undefined;
-	const { attach, state, error, replaySettled, syncVisibleSize } = useTerminalSession(attachSession, {
+	const { attach, state, error, replaySettled, syncVisibleSize, clearPane, clearConversation } = useTerminalSession(attachSession, {
 		coverInitialReplay: terminalTarget?.kind !== "reviewer",
 		createMux,
 		daemonReady,
@@ -950,6 +958,14 @@ function AttachedTerminal({
 	}, [replayPaintPending, replaySettled, terminal]);
 	const handleId = shellTerminalHandleId ?? attachSession?.terminalHandleId;
 	const provider = terminalTarget?.kind === "reviewer" ? terminalTarget.harness : session?.provider;
+	// Agent TUI panes only (never a shell or reviewer pane): the provider's own
+	// conversation-reset command, when verified for this provider. Undefined
+	// hides the "Clear conversation" menu item.
+	const workerClearConversationCommand =
+		terminalTarget?.kind !== "shell" && terminalTarget?.kind !== "reviewer"
+			? clearConversationCommand(session?.provider)
+			: undefined;
+	const [confirmingClearConversation, setConfirmingClearConversation] = useState(false);
 	const isSessionActive = session ? sessionIsActive(session) : false;
 	// A standalone shell is never restorable: there is no session row to restore.
 	const canRestoreSession =
@@ -1070,6 +1086,10 @@ function AttachedTerminal({
 					isFullscreen={isFullscreen}
 					isVisible={isVisible}
 					onChangeFontSize={onChangeFontSize}
+					onClear={clearPane}
+					onClearConversation={
+						workerClearConversationCommand ? () => setConfirmingClearConversation(true) : undefined
+					}
 					onError={handleInitError}
 					onLinkOpen={handleLinkOpen}
 					onReady={handleReady}
@@ -1093,17 +1113,28 @@ function AttachedTerminal({
 					</div>
 				)}
 			</div>
-			{session && (
-				<RestoreUnavailableDialog
-					open={restoreUnavailable}
-					session={session}
-					onOpenChange={setRestoreUnavailable}
-					onRecreated={async () => {
-						await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-					}}
-				/>
-			)}
-		</div>
+		{session && (
+			<RestoreUnavailableDialog
+				open={restoreUnavailable}
+				session={session}
+				onOpenChange={setRestoreUnavailable}
+				onRecreated={async () => {
+					await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+				}}
+			/>
+		)}
+		{workerClearConversationCommand && (
+			<ClearConversationDialog
+				command={workerClearConversationCommand}
+				open={confirmingClearConversation}
+				onOpenChange={setConfirmingClearConversation}
+				onConfirm={() => {
+					setConfirmingClearConversation(false);
+					clearConversation(workerClearConversationCommand);
+				}}
+			/>
+		)}
+	</div>
 	);
 }
 
@@ -1130,6 +1161,46 @@ function ReplayCover() {
 		>
 			{showLabel && <div className="font-mono text-caption text-terminal-dim">{t("terminal.loadingOutput")}</div>}
 		</div>
+	);
+}
+
+// Confirmation for "Clear conversation": sending the provider's own reset
+// command (e.g. /clear) through the pane also wipes the agent's conversation
+// context, which is not reversible, so it is never one click. Styling follows
+// RestoreUnavailableDialog.
+type ClearConversationDialogProps = {
+	command: string;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onConfirm: () => void;
+};
+
+function ClearConversationDialog({ command, open, onOpenChange, onConfirm }: ClearConversationDialogProps) {
+	const { t } = useTranslation();
+	return (
+		<Dialog.Root open={open} onOpenChange={onOpenChange}>
+			<Dialog.Portal>
+				<Dialog.Overlay className="dialog-overlay data-[state=open]:animate-overlay-in" />
+				<Dialog.Content
+					className={`${settingsDialogContentClass} fixed left-1/2 top-1/2 w-dialog-md -translate-x-1/2 -translate-y-1/2 data-[state=open]:animate-modal-in`}
+				>
+					<div className={settingsDialogHeaderClass}>
+						<Dialog.Title className="settings-dialog-title">{t("terminal.clearConversationTitle")}</Dialog.Title>
+						<Dialog.Description className="text-control text-settings-muted">
+							{t("terminal.clearConversationBody", { command })}
+						</Dialog.Description>
+					</div>
+					<div className={settingsDialogFooterClass}>
+						<Button type="button" variant="footer" onClick={() => onOpenChange(false)}>
+							{t("confirm.cancel")}
+						</Button>
+						<Button type="button" variant="footer-primary" onClick={onConfirm}>
+							{t("terminal.clearConversationConfirm")}
+						</Button>
+					</div>
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
 	);
 }
 

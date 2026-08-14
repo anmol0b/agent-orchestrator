@@ -288,6 +288,16 @@ func (r *Runtime) GetOutput(ctx context.Context, handle ports.RuntimeHandle, lin
 	return clientGetOutput(sess.addr, lines)
 }
 
+// ClearHistory resets the pty-host ring buffer so a later attach replays
+// nothing. The live PTY and its current screen are untouched.
+func (r *Runtime) ClearHistory(ctx context.Context, handle ports.RuntimeHandle) error {
+	sess := r.resolve(handle.ID)
+	if sess == nil {
+		return fmt.Errorf("conpty: session %q not found", handle.ID)
+	}
+	return clientClear(sess.addr)
+}
+
 // resolve looks up a session by id: first the in-memory map, then the B2
 // registry (for daemon-restart recovery). Returns nil if not found either way.
 func (r *Runtime) resolve(id string) *hostSession {

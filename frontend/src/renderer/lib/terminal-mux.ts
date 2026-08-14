@@ -6,7 +6,7 @@
 // raw JSON string cannot represent.
 //
 //   ch "terminal" — per-pane byte stream keyed by an opaque runtime handle id
-//     client → open{id,cols,rows} | data{id,data} | resize{id,cols,rows,force?} | close{id}
+//     client → open{id,cols,rows} | data{id,data} | resize{id,cols,rows,force?} | clear{id} | close{id}
 //     server → opened{id} | data{id,data} | exited{id} | error{id?,error}
 //   ch "system"   — ping/pong liveness
 //
@@ -64,6 +64,10 @@ export function closeFrame(id: string): string {
 	return JSON.stringify({ ch: "terminal", type: "close", id });
 }
 
+export function clearFrame(id: string): string {
+	return JSON.stringify({ ch: "terminal", type: "clear", id });
+}
+
 function pingFrame(): string {
 	return JSON.stringify({ ch: "system", type: "ping" });
 }
@@ -98,6 +102,12 @@ export type TerminalMux = {
 	sendInput: (id: string, input: string) => void;
 	/** Resize normally, or explicitly re-signal an unchanged grid for recovery. */
 	resize: (id: string, cols: number, rows: number, force?: boolean) => void;
+	/**
+	 * Ask the daemon to drop the pane's server-side scrollback (tmux history /
+	 * conpty ring) so a later attach replays nothing. Control frame, not input:
+	 * the caller clears its local xterm buffer for instant feedback.
+	 */
+	clear: (id: string) => void;
 	close: (id: string) => void;
 	onData: (id: string, listener: DataListener) => () => void;
 	onExit: (id: string, listener: ExitListener) => () => void;
@@ -246,6 +256,9 @@ export function createTerminalMux(url: string, WebSocketImpl: typeof WebSocket =
 		resize: (id, cols, rows, force) => {
 			send(resizeFrame(id, cols, rows, force));
 		},
+		clear: (id) => {
+			send(clearFrame(id));
+		},
 		close: (id) => {
 			send(closeFrame(id));
 		},
@@ -350,6 +363,11 @@ export function createTerminalMuxPool(createMux: () => TerminalMux): TerminalMux
 			resize: (id, cols, rows, force) => {
 				if (!released && !connection.closed && !connection.disposed) {
 					connection.mux.resize(id, cols, rows, force);
+				}
+			},
+			clear: (id) => {
+				if (!released && !connection.closed && !connection.disposed) {
+					connection.mux.clear(id);
 				}
 			},
 			close: (id) => {

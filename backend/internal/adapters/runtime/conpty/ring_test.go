@@ -125,6 +125,31 @@ func TestRingSnapshotExcludesPartial(t *testing.T) {
 	}
 }
 
+// TestRingReset verifies Reset drops every stored line and the in-progress
+// partial, so a fresh client's scrollback replay is empty.
+func TestRingReset(t *testing.T) {
+	r := NewRing()
+	r.Append([]byte("stale line\npartial stale"))
+	if string(r.Snapshot()) != "stale line\n" {
+		t.Fatal("precondition: snapshot missing stale line")
+	}
+
+	r.Reset()
+
+	if snap := string(r.Snapshot()); snap != "" {
+		t.Errorf("Snapshot after Reset = %q, want empty", snap)
+	}
+	if tail := r.Tail(10); tail != "" {
+		t.Errorf("Tail(10) after Reset = %q, want empty", tail)
+	}
+
+	// Post-clear output accumulates fresh; the pre-clear partial must not leak.
+	r.Append([]byte("fresh\n"))
+	if snap := string(r.Snapshot()); snap != "fresh\n" {
+		t.Errorf("Snapshot after Reset+Append = %q, want %q", snap, "fresh\n")
+	}
+}
+
 // TestRingConcurrent validates the advertised goroutine-safety of Ring under the
 // race detector. It spawns 10 writer goroutines (Append) and 10 reader goroutines
 // (Snapshot + Tail) that all run concurrently; any data race will be caught by

@@ -25,6 +25,7 @@ type FakeMux = {
 	opens: Array<[string, number, number]>;
 	resizes: Array<[string, number, number]>;
 	inputs: Array<[string, string]>;
+	clears: string[];
 	closes: string[];
 	events: string[];
 	disposed: boolean;
@@ -53,6 +54,7 @@ function createFakeMux(): FakeMux {
 		opens: [],
 		resizes: [],
 		inputs: [],
+		clears: [],
 		closes: [],
 		events: [],
 		disposed: false,
@@ -60,6 +62,7 @@ function createFakeMux(): FakeMux {
 			open: (id, cols, rows) => fake.opens.push([id, cols, rows]),
 			sendInput: (id, input) => fake.inputs.push([id, input]),
 			resize: (id, cols, rows) => fake.resizes.push([id, cols, rows]),
+			clear: (id) => fake.clears.push(id),
 			close: (id) => {
 				fake.closes.push(id);
 				fake.events.push(`close:${id}`);
@@ -762,6 +765,98 @@ describe("useTerminalSession", () => {
 
 			expect(terminal.lines).toEqual(["fresh"]);
 			expect(view.result.current.replaySettled).toBe(true);
+		});
+	});
+
+	// Clear goes beyond the local viewport: the pane's server-side scrollback
+	// must be truncated too, or a later attach/resize replays the cleared
+	// output (the terminal clear bug).
+	describe("clearPane", () => {
+		it("sends the clear control frame for the current handle once attached", () => {
+			const { view, muxes } = setup();
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => view.result.current.clearPane());
+			expect(muxes[0].clears).toEqual(["handle-1"]);
+		});
+
+		it("sends the frame before the server acks too — a control frame, not input", () => {
+			const { view, muxes } = setup();
+			// No emitOpened: input gating must not apply to clear.
+			act(() => view.result.current.clearPane());
+			expect(muxes[0].clears).toEqual(["handle-1"]);
+		});
+
+		it("drops replay bytes still held client-side so they cannot repaint the cleared pane", () => {
+			const { view, terminal, muxes } = setup();
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => muxes[0].emitData("handle-1", "stale replay"));
+			expect(view.result.current.replaySettled).toBe(false);
+
+			act(() => view.result.current.clearPane());
+
+			// The buffered burst was discarded, not flushed, and the cover lifts.
+			expect(view.result.current.replaySettled).toBe(true);
+			expect(terminal.lines).toEqual([]);
+			expect(muxes[0].clears).toEqual(["handle-1"]);
+
+			// The gate is closed: post-clear output streams straight through.
+			act(() => muxes[0].emitData("handle-1", "fresh"));
+			expect(terminal.lines).toEqual(["fresh"]);
+		});
+
+		it("sends nothing once the pane exited and the attachment is gone", () => {
+			const { view, muxes } = setup();
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => muxes[0].emitExit("handle-1"));
+			expect(view.result.current.state).toBe("exited");
+			act(() => view.result.current.clearPane());
+			expect(muxes[0].clears).toEqual([]);
+		});
+	});
+
+	// Agent TUI panes repaint their transcript from their own memory, so the
+	// only clear that sticks is the TUI's own conversation-reset command typed
+	// through the pane — then the terminal-level clear on top.
+	describe("clearConversation", () => {
+		it("sends the reset command as input and then clears the pane", () => {
+			const { view, muxes } = setup();
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => view.result.current.clearConversation("/clear"));
+			expect(muxes[0].inputs).toEqual([["handle-1", "/clear\r"]]);
+			expect(muxes[0].clears).toEqual(["handle-1"]);
+		});
+
+		it("refuses before the server acks the attachment", () => {
+			const { view, muxes } = setup();
+			act(() => view.result.current.clearConversation("/clear"));
+			expect(muxes[0].inputs).toEqual([]);
+			expect(muxes[0].clears).toEqual([]);
+		});
+
+		it("refuses while a controller handoff owns the input", () => {
+			const { view, muxes } = setup({ inputDisabled: true });
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => view.result.current.clearConversation("/clear"));
+			expect(muxes[0].inputs).toEqual([]);
+			expect(muxes[0].clears).toEqual([]);
+			expect(view.result.current.state).toBe("attached");
+		});
+
+		it("refuses while the pane is parked off screen", () => {
+			const { view, muxes } = setup({ isVisible: false });
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => view.result.current.clearConversation("/clear"));
+			expect(muxes[0].inputs).toEqual([]);
+			expect(muxes[0].clears).toEqual([]);
+		});
+
+		it("refuses once the pane exited", () => {
+			const { view, muxes } = setup();
+			act(() => muxes[0].emitOpened("handle-1"));
+			act(() => muxes[0].emitExit("handle-1"));
+			act(() => view.result.current.clearConversation("/clear"));
+			expect(muxes[0].inputs).toEqual([]);
+			expect(muxes[0].clears).toEqual([]);
 		});
 	});
 

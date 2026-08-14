@@ -24,6 +24,7 @@ const (
 	msgData      = "data"
 	msgResize    = "resize"
 	msgClose     = "close"
+	msgClear     = "clear"     // truncate the runtime pane's scrollback history
 	msgSubscribe = "subscribe" // ch "subscribe"
 	msgPing      = "ping"      // ch "system"
 )

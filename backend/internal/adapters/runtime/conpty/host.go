@@ -341,6 +341,12 @@ func (h *host) handleClientMsg(conn net.Conn, msgType byte, payload []byte) {
 	case MsgKillReq:
 		// Trigger graceful shutdown; returns immediately (idempotent).
 		go h.shutdown()
+
+	case MsgClearReq:
+		// Drop the scrollback ring so a fresh client's replay is empty. The
+		// live PTY and its current screen are untouched. No response frame
+		// (fire-and-forget, like MsgKillReq).
+		h.cfg.Ring.Reset()
 	}
 }
 

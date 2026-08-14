@@ -171,6 +171,10 @@ func TestCommandBuilders(t *testing.T) {
 		[]string{"respawn-pane", "-k", "-t", "sess-1:0.0", "-c", "/tmp/ws", "/bin/sh", "-c", "echo hi"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("respawnPaneArgs = %#v, want %#v", got, want)
 	}
+	// clear-history targets the pane directly (like respawn-pane, no = prefix).
+	if got, want := clearHistoryArgs("sess-1"), []string{"clear-history", "-t", "sess-1:0.0"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("clearHistoryArgs = %#v, want %#v", got, want)
+	}
 	// set-option uses pane-targeting (no = prefix).
 	if got, want := setStatusOffArgs("sess-1"), []string{"set-option", "-t", "sess-1", "status", "off"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("setStatusOffArgs = %#v, want %#v", got, want)
@@ -1169,6 +1173,17 @@ func TestGetOutputArgs(t *testing.T) {
 	}
 	if got, want := fr.calls[0].args, capturePaneArgs("sess-1", 10); !reflect.DeepEqual(got, want) {
 		t.Fatalf("capture-pane args = %#v, want %#v", got, want)
+	}
+}
+
+func TestClearHistoryRunsClearHistoryOnThePane(t *testing.T) {
+	r, fr := newTestRuntime(0)
+
+	if err := r.ClearHistory(context.Background(), ports.RuntimeHandle{ID: "sess-1"}); err != nil {
+		t.Fatalf("ClearHistory: %v", err)
+	}
+	if got, want := fr.calls[0].args, clearHistoryArgs("sess-1"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("clear-history args = %#v, want %#v", got, want)
 	}
 }
 

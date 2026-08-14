@@ -3,6 +3,8 @@ package terminal
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -118,6 +120,64 @@ type observedTerminalInputLease struct {
 func (l *observedTerminalInputLease) AcquireSessionInput(domain.SessionID) (func(), bool) {
 	close(l.acquired)
 	return func() { close(l.released) }, true
+}
+
+func TestServeClearTruncatesRuntimeScrollback(t *testing.T) {
+	pty := newFakePTY()
+	src := &fakeSource{alive: true, spawner: &fakeSpawner{ptys: []*fakePTY{pty}}}
+	mgr := NewManager(src, nil, testLogger(), WithHeartbeat(0))
+	defer mgr.Close()
+
+	conn := newFakeConn()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go mgr.Serve(ctx, conn)
+
+	conn.in <- clientMsg{Ch: chTerminal, ID: "t1", Type: msgOpen}
+	recv(t, conn, chTerminal, msgOpened, time.Second)
+
+	conn.in <- clientMsg{Ch: chTerminal, ID: "t1", Type: msgClear}
+	eventually(t, time.Second, func() bool {
+		calls := src.clearHistoryCalls()
+		return len(calls) == 1 && calls[0] == "t1"
+	})
+
+	// A clear for a pane this conn never opened is dropped silently, like data.
+	conn.in <- clientMsg{Ch: chTerminal, ID: "ghost", Type: msgClear}
+	time.Sleep(20 * time.Millisecond)
+	if calls := src.clearHistoryCalls(); len(calls) != 1 {
+		t.Fatalf("clear history calls = %v, want only the opened pane", calls)
+	}
+	select {
+	case m := <-conn.out:
+		t.Fatalf("unexpected frame for unknown pane clear: %#v", m)
+	default:
+	}
+}
+
+func TestServeClearFailureReportsPaneError(t *testing.T) {
+	pty := newFakePTY()
+	src := &fakeSource{
+		alive:    true,
+		spawner:  &fakeSpawner{ptys: []*fakePTY{pty}},
+		clearErr: errors.New("tmux blew up"),
+	}
+	mgr := NewManager(src, nil, testLogger(), WithHeartbeat(0))
+	defer mgr.Close()
+
+	conn := newFakeConn()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go mgr.Serve(ctx, conn)
+
+	conn.in <- clientMsg{Ch: chTerminal, ID: "t1", Type: msgOpen}
+	recv(t, conn, chTerminal, msgOpened, time.Second)
+
+	conn.in <- clientMsg{Ch: chTerminal, ID: "t1", Type: msgClear}
+	errFrame := recv(t, conn, chTerminal, msgError, time.Second)
+	if errFrame.ID != "t1" || !strings.Contains(errFrame.Error, "clear failed") || !strings.Contains(errFrame.Error, "tmux blew up") {
+		t.Fatalf("error frame = %#v", errFrame)
+	}
 }
 
 func TestServeRejectsTerminalInputWhileSessionGateIsClosed(t *testing.T) {

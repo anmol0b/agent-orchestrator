@@ -275,3 +275,21 @@ func clientKill(addr string) error {
 	}
 	return nil
 }
+
+// clientClear sends MsgClearReq, asking the host to drop its scrollback ring so
+// a later attach replays nothing. Transport failures are preserved so the
+// caller can surface a failed clear (unlike kill, a refused connection means
+// the pane is gone, which the caller resolves before dialing).
+func clientClear(addr string) error {
+	conn, err := dialHost(addr, isAliveTimeout)
+	if err != nil {
+		return fmt.Errorf("dial pty-host for clear: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(isAliveTimeout))
+	clearFrame, _ := EncodeMessage(MsgClearReq, nil) // nil payload, never overflows
+	if _, err := conn.Write(clearFrame); err != nil {
+		return fmt.Errorf("write pty-host clear request: %w", err)
+	}
+	return nil
+}

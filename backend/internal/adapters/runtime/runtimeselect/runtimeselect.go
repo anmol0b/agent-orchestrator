@@ -14,11 +14,13 @@ import (
 
 // Runtime is the union interface that both tmux and conpty satisfy.
 // It extends ports.Runtime (Create/Destroy/IsAlive) with the additional methods
-// the daemon wires directly, including ports.Attacher (Attach) so the terminal
-// layer can open a Stream against the selected runtime.
+// the daemon wires directly, including ports.Attacher (Attach) and
+// ClearHistory so the terminal layer can open a Stream against the selected
+// runtime and truncate a pane's scrollback for the client's clear action.
 type Runtime interface {
 	ports.Runtime // Create, Destroy, IsAlive
 	ports.Attacher
+	ClearHistory(ctx context.Context, handle ports.RuntimeHandle) error
 	Interrupt(ctx context.Context, handle ports.RuntimeHandle) error
 	SendInput(ctx context.Context, handle ports.RuntimeHandle, input string) error
 	SendMessage(ctx context.Context, handle ports.RuntimeHandle, message string) error

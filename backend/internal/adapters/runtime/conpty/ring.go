@@ -56,6 +56,16 @@ func (r *Ring) FlushPartial() {
 	r.partialLine = ""
 }
 
+// Reset discards every stored line and any in-progress partial line, so the
+// next Snapshot/Tail (and a fresh client's scrollback replay) is empty.
+func (r *Ring) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.lines = nil
+	r.partialLine = ""
+}
+
 // Snapshot returns all stored lines concatenated as raw bytes for scrollback replay.
 // The in-progress partialLine is NOT included (matches TS outputBuffer.join("")).
 func (r *Ring) Snapshot() []byte {

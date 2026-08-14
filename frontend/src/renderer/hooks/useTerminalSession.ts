@@ -790,6 +790,51 @@ export function useTerminalSession(session: WorkspaceSession | undefined, option
 		r.lastPublishedGrid = { cols, rows };
 	}, []);
 
+	/**
+	 * Clear this pane beyond the viewport: the caller clears its local xterm
+	 * buffer for instant feedback, then this asks the daemon to drop the pane's
+	 * server-side scrollback (tmux history / conpty ring) so a later attach or
+	 * resize replays nothing. A control frame, not input — deliberately not
+	 * gated on inputReady or visibility, and safe mid-replay: any initial-replay
+	 * bytes still held client-side are discarded rather than flushed, so they
+	 * cannot repaint the just-cleared viewport. Bytes already handed to xterm's
+	 * parser queue at most form a small in-flight tail; the server-side clear
+	 * bounds them to this attachment.
+	 */
+	const clearPane = useCallback(() => {
+		const r = runtime.current;
+		if (r.replayBuffering) {
+			r.replayBuffering = false;
+			clearReplayTimers();
+			r.replayChunks = [];
+			r.replayBytes = 0;
+			r.replayTailPending = false;
+			setReplaySettled(true);
+		}
+		if (r.detached || !r.mux || !r.handle) return;
+		r.mux.clear(r.handle);
+	}, [clearReplayTimers]);
+
+	/**
+	 * Reset an agent TUI pane's conversation by typing the provider's own
+	 * command (e.g. /clear) through the pane, then clearing the local buffer
+	 * and server-side scrollback. Agent TUIs repaint their transcript from
+	 * their own memory on every resize, so this — not the terminal-level
+	 * clear — is the only clear that sticks for those panes. Destructive: the
+	 * agent's conversation context is gone; callers must confirm first.
+	 */
+	const clearConversation = useCallback(
+		(command: string) => {
+			const r = runtime.current;
+			if (stateRef.current !== "attached") return;
+			if (optionsRef.current.inputDisabled || optionsRef.current.isVisible === false) return;
+			if (r.detached || !r.mux || !r.handle) return;
+			r.mux.sendInput(r.handle, `${command}\r`);
+			clearPane();
+		},
+		[clearPane],
+	);
+
 	// Daemon came back while we were waiting: reconnect immediately, without
 	// backoff debt from attempts made against the dead daemon.
 	const daemonReady = options.daemonReady;
@@ -862,5 +907,5 @@ export function useTerminalSession(session: WorkspaceSession | undefined, option
 		[teardownMux],
 	);
 
-	return { attach, state, error, replaySettled, syncVisibleSize };
+	return { attach, state, error, replaySettled, syncVisibleSize, clearPane, clearConversation };
 }

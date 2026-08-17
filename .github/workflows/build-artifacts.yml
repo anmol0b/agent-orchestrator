@@ -252,6 +252,22 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Build headless archive
         run: scripts/build-headless-archive.sh
+      # Validate the artifact itself, not just the staging dir: extract the
+      # tarball fresh, verify its checksum sidecar, and run the packaged
+      # binary. On the ARM runner this is also the first real ARM64 Linux
+      # execution of the archive.
+      - name: Self-test the archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="ao-headless-linux-${{ matrix.arch }}.tar.gz"
+          tmp="$(mktemp -d)"
+          cp "dist/headless/$base" "dist/headless/$base.sha256" "$tmp/"
+          (cd "$tmp" && sha256sum -c "$base.sha256" && tar -xzf "$base")
+          root="$tmp/ao-headless-linux-${{ matrix.arch }}"
+          "$root/bin/ao" headless --help >/dev/null
+          test -f "$root/acp-runtime/node/bin/node"
+          test -f "$root/acp-runtime/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
       - name: Emit digest fragment
         shell: bash
         run: |

@@ -1,0 +1,28 @@
+# systemd unit for the AO headless daemon (Raspberry Pi / Linux servers).
+# Install: see docs/remote-daemon.md.
+#
+# `ao headless` starts the loopback API, enables the authenticated remote
+# listener (port 3011 by default, override with --remote-port), and verifies
+# Tailscale Secure Pairing before reporting readiness — it exits non-zero if
+# Tailscale HTTPS cannot be established, so the unit never runs plaintext.
+[Unit]
+Description=Agent Orchestrator headless daemon
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust to the user that owns the AO state directory (~/.ao):
+User=pi
+# The archive layout matters: bin/ao discovers ../acp-runtime automatically.
+ExecStart=/opt/ao/bin/ao headless
+Restart=on-failure
+RestartSec=3
+# Agent CLI credentials and any extra environment go here, e.g.:
+# Environment=ANTHROPIC_API_KEY=...
+# Only needed if AO state should not live in the service user's ~/.ao:
+# Environment=AO_DATA_DIR=/home/pi/.ao/data
+# Environment=AO_RUN_FILE=/home/pi/.ao/running.json
+
+[Install]
+WantedBy=multi-user.target

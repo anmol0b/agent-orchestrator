@@ -223,10 +223,64 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Standalone headless Linux archives (see docs/remote-daemon.md), built
+  # host-native because the bundled ACP Node runtime is arch-specific. Digests
+  # use the same fragment contract as the desktop platforms and merge into
+  # digests.json below.
+  headless:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/acp-runtime/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Build headless archive
+        run: scripts/build-headless-archive.sh
+      - name: Emit digest fragment
+        shell: bash
+        run: |
+          base="ao-headless-linux-${{ matrix.arch }}.tar.gz"
+          hash="$(openssl dgst -sha256 "dist/headless/$base" | awk '{print $NF}')"
+          jq -n --arg f "$base" --arg h "$hash" '{($f): $h}' \
+            > "dist/headless/headless-${{ matrix.arch }}.digest.json"
+          echo "headless-${{ matrix.arch }}: $base sha256=$hash" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-linux-${{ matrix.arch }}
+          path: |
+            dist/headless/ao-headless-linux-${{ matrix.arch }}.tar.gz
+            dist/headless/ao-headless-linux-${{ matrix.arch }}.tar.gz.sha256
+          retention-days: 1
+          if-no-files-found: error
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-headless-${{ matrix.arch }}
+          path: dist/headless/headless-${{ matrix.arch }}.digest.json
+          retention-days: 1
+          if-no-files-found: error
+
   # Merge the per-platform digest fragments into one digests.json artifact so
   # a downstream consumer reads every expected hash from a single file.
   digests:
-    needs: build
+    needs: [build, headless]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

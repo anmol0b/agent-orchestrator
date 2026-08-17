@@ -23,8 +23,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 platform="$(uname -s | tr '[:upper:]' '[:lower:]')"   # linux | darwin
-arch="$(uname -m)"                                     # x86_64 | arm64
+arch="$(uname -m)"                                     # x86_64 | arm64 | aarch64
+# Linux reports aarch64 where macOS reports arm64; normalize both to the
+# artifact/workflow name arm64 (the CI matrix and docs use that spelling).
 [ "$arch" = "x86_64" ] && arch="x64"
+[ "$arch" = "aarch64" ] && arch="arm64"
 
 name="ao-headless-${platform}-${arch}"
 out_dir="${REPO_ROOT}/dist/headless"

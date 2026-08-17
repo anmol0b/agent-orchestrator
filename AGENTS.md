@@ -69,6 +69,7 @@ For code entry points:
 - **Exactly one publisher.** Only the designated release conductor runs a real publish, on any channel. Divergent artifacts from multiple publishers made the 28-29 Jul macOS incident unreadable. Use the fork dev loop for test builds. Full rule and rationale: `frontend/docs/desktop-release.md`, "Hard rule: exactly one publisher".
 - **Verify macOS artifacts with `frontend/scripts/verify-mac-artifact.sh`, never by hand.** It extracts with `ditto -x -k` and runs `codesign --verify --deep --strict`, `spctl -a -vv -t exec`, `xcrun stapler validate`. Plain `unzip` breaks the seal and yields a convincing false failure; `spctl` without `-vv` prints nothing at all on success.
 - **macOS ships both a `.zip` and a `.dmg`.** The dmg is first install only. The zip and `latest-mac.yml` must keep publishing forever: electron-updater cannot install an update from a dmg. macOS differential updates are permanently disabled (full download only); see issues #3151 and #3267.
+- **Headless Linux hosts (Raspberry Pi, servers) install from the `ao-headless-linux-{x64,arm64}.tar.gz` release assets**, built by `scripts/build-headless-archive.sh` in the release workflows — never from npm. The arm64 archive must build on an ARM runner: the bundled ACP Node runtime is architecture-specific. See `docs/remote-daemon.md` and `docs/adr/0003-remote-daemon-via-tailscale-https.md`.
 
 ## Coding conventions
 

@@ -154,7 +154,7 @@ gh release edit vX.Y.Z -R AgentWrapper/agent-orchestrator --notes-file /tmp/note
 ### 6. Verify
 
 ```bash
-# published, not draft/prerelease, 17 assets:
+# published, not draft/prerelease, 21 assets:
 gh release view vX.Y.Z -R AgentWrapper/agent-orchestrator \
   --json isDraft,isPrerelease,assets --jq '{isDraft,isPrerelease,count:(.assets|length)}'
 # latest points at the new release:
@@ -182,7 +182,9 @@ Windows and Linux only (macOS ships none by policy since #3151, so mac clients
 always take the full-download path), the version-free aliases `ao start` fetches
 (`agent-orchestrator-darwin-arm64.zip`, `agent-orchestrator-darwin-x64.zip`,
 `agent-orchestrator-win32-x64.exe`, `agent-orchestrator-linux-x64.AppImage`,
-and the deb/rpm published under versioned names), and the electron-updater
+and the deb/rpm published under versioned names), the standalone headless Linux
+archives `ao-headless-linux-{x64,arm64}.tar.gz` with their `.sha256` sidecars
+(Raspberry Pi / server installs, see `docs/remote-daemon.md`), and the electron-updater
 feeds `latest.yml`, `latest-mac.yml`, `latest-linux.yml`.
 
 **Stable releases only** additionally carry

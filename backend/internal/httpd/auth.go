@@ -1,6 +1,7 @@
 package httpd
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -160,12 +161,30 @@ func maybeSetPreviewAuthCookie(w http.ResponseWriter, r *http.Request, tok strin
 	})
 }
 
+// webSessionAuthContextKey marks requests that authenticated with an
+// ao_web_session cookie rather than a bearer token. The /mux upgrade checks it
+// to apply the browser same-origin rule to WebSockets (CSWSH protection).
+type webSessionAuthContextKey struct{}
+
+// isWebSessionAuth reports whether r authenticated via the browser session
+// cookie somewhere up the middleware chain.
+func isWebSessionAuth(r *http.Request) bool {
+	v, _ := r.Context().Value(webSessionAuthContextKey{}).(bool)
+	return v
+}
+
 // authMiddleware authenticates LAN requests against the current connection
 // password. connected, which may be nil, is notified of the source address of
 // every request that authenticates; it exists so telemetry can observe that a
 // phone actually reached this desktop, and it must not block the request, since
 // it runs inline on every authenticated call.
-func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter) func(http.Handler) http.Handler {
+//
+// Two credentials are accepted: the bearer token (desktop proxy, mobile app)
+// and, when sessions is non-nil, the browser dashboard's ao_web_session
+// cookie. Cookie-authenticated mutations additionally require a same-origin
+// Origin/Sec-Fetch-Site — browsers attach cookies to cross-site requests, so
+// the cookie path needs the CSRF guard the bearer path does not.
+func authMiddleware(state *authState, lock *lockout, sessions *webSessionManager, connected *mobileConnectReporter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			src := sourceKey(r)
@@ -181,7 +200,26 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 				next.ServeHTTP(w, r)
 				return
 			}
-			lock.fail(src)
+			if c, err := r.Cookie(webSessionCookieName); err == nil && sessions.validate(c.Value, state.currentHash()) {
+				if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions &&
+					!sameOriginRequest(r) {
+					envelope.WriteAPIError(w, r, http.StatusForbidden, "forbidden", "ORIGIN_FORBIDDEN",
+						"cookie-authenticated mutations must be same-origin", nil)
+					return
+				}
+				lock.reset(src)
+				connected.report(src)
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), webSessionAuthContextKey{}, true)))
+				return
+			}
+			// Only presented guesses count toward the lockout: a bearer token
+			// that fails to match, or a credential-free probe (existing
+			// behavior). A stale/expired browser cookie is an ordinary 401, not
+			// a guess — otherwise a rotated or expired cookie would lock the
+			// browser out of the login page itself.
+			if _, cookieErr := r.Cookie(webSessionCookieName); cookieErr != nil {
+				lock.fail(src)
+			}
 			envelope.WriteAPIError(w, r, http.StatusUnauthorized, "unauthorized", "BAD_PASSWORD",
 				"missing or invalid connection password", nil)
 		})

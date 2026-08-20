@@ -92,7 +92,7 @@ func setupHeadlessRemote(ctx context.Context, bs *controllers.BridgeService, opt
 	}
 
 	log.Info("headless remote access ready", "host", sp.Host, "remotePort", bs.LAN.BoundPort())
-	if _, err := fmt.Fprintf(opts.Out, "Remote access ready.\n  Pairing URL: https://%s\n  Retrieve the connection password with: ao remote credentials\n", sp.Host); err != nil {
+	if _, err := fmt.Fprintf(opts.Out, "Remote access ready.\n  Dashboard URL: https://%s\n  Retrieve the connection password with: ao remote credentials\n  Mobile app: pair with the same URL and password.\n", sp.Host); err != nil {
 		return fmt.Errorf("print readiness banner: %w", err)
 	}
 	return nil

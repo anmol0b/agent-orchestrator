@@ -33,6 +33,15 @@ func mountTerminalMux(r chi.Router, mgr *terminal.Manager, log *slog.Logger) {
 // all stream logic lives in internal/terminal.
 func terminalMuxHandler(mgr *terminal.Manager, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Browser-dashboard (cookie-authenticated) WebSockets must be
+		// same-origin: browsers send cookies with any site's upgrade request,
+		// so without this check any page could drive a logged-in session's
+		// terminals (CSWSH). Bearer-authenticated clients (desktop proxy,
+		// mobile) are unaffected.
+		if isWebSessionAuth(r) && !sameOriginRequest(r) {
+			http.Error(w, "cross-origin websocket forbidden", http.StatusForbidden)
+			return
+		}
 		// InsecureSkipVerify disables coder/websocket's same-origin check: the
 		// daemon binds loopback only and the desktop renderer's origin differs
 		// from the loopback host, mirroring the legacy Node mux server.

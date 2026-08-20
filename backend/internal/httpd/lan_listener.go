@@ -29,13 +29,20 @@ type LANManager struct {
 	bound int
 }
 
-// NewLANManager wraps handler in the LAN control-block and authMiddleware
-// (backed by the shared state) and returns a manager that can start/stop the
-// network-facing listener. Most callers want NewMobileLAN, which owns the state.
-func NewLANManager(handler http.Handler, state *authState, defaultPort int, log *slog.Logger, sink ports.EventSink) *LANManager {
+// NewLANManager wraps handler in the LAN control-block, the browser-dashboard
+// routes (when web is non-nil), and authMiddleware (backed by the shared
+// state) and returns a manager that can start/stop the network-facing
+// listener. Most callers want NewMobileLAN, which owns the state.
+func NewLANManager(handler http.Handler, state *authState, defaultPort int, log *slog.Logger, sink ports.EventSink, web *webDashDeps) *LANManager {
 	lock := newLockout(5, time.Minute, time.Now)
+	reporter := newMobileConnectReporter(sink, time.Now)
+	var sessions *webSessionManager
+	if web != nil {
+		sessions = web.sessions
+	}
+	chain := wrapWebDash(authMiddleware(state, lock, sessions, reporter)(handler), state, lock, web, reporter)
 	return &LANManager{
-		handler:     lanControlBlock(authMiddleware(state, lock, newMobileConnectReporter(sink, time.Now))(handler)),
+		handler:     lanControlBlock(chain),
 		defaultPort: defaultPort,
 		log:         loggerOrDefault(log),
 		state:       state,
@@ -102,8 +109,17 @@ func IsLANControlBlockedPathForTest(path string) bool { return isLANControlBlock
 // outside this package (the daemon) cannot construct an authState directly
 // since it is unexported; this gives them a LANManager that owns one, and the
 // daemon rotates the connection password exclusively via SetPasswordHash.
-func NewMobileLAN(handler http.Handler, defaultPort int, log *slog.Logger, sink ports.EventSink) *LANManager {
-	return NewLANManager(handler, &authState{}, defaultPort, log, sink)
+// dataDir locates the browser-session signing key (<dataDir>/mobile/); if the
+// key cannot be created, the dashboard login route is disabled while bearer
+// (desktop/mobile) access keeps working.
+func NewMobileLAN(handler http.Handler, defaultPort int, log *slog.Logger, sink ports.EventSink, dataDir string) *LANManager {
+	logger := loggerOrDefault(log)
+	sessions, err := newWebSessionManager(dataDir, time.Now)
+	if err != nil {
+		logger.Warn("web dashboard sessions disabled", "err", err)
+		return NewLANManager(handler, &authState{}, defaultPort, logger, sink, nil)
+	}
+	return NewLANManager(handler, &authState{}, defaultPort, logger, sink, &webDashDeps{sessions: sessions, dist: webAssets()})
 }
 
 // SetPasswordHash stores the current connection password hash on the shared

@@ -44,7 +44,11 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 			// Cache keys must split on Origin even for rejected values, or a
 			// 403 could be replayed to an allowed origin.
 			w.Header().Add("Vary", "Origin")
-			if _, ok := allowed[origin]; !ok && !isLoopbackOrigin(origin) {
+			// originMatchesHost admits the browser dashboard served by this very
+			// daemon on the LAN listener: its API calls are same-origin (the
+			// tailnet HTTPS origin is not, and cannot be, in the static
+			// allowlist). Same-origin content is definitionally safe here.
+			if _, ok := allowed[origin]; !ok && !isLoopbackOrigin(origin) && !originMatchesHost(origin, r.Host) {
 				envelope.WriteAPIError(w, r, http.StatusForbidden, "forbidden", "ORIGIN_FORBIDDEN",
 					"Origin is not allowed to access this daemon", nil)
 				return
@@ -52,7 +56,6 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
-
 			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 				if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {

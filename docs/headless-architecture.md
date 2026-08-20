@@ -27,6 +27,8 @@ One shared password protects all three. Rotating it (`ao remote rotate`)
 instantly invalidates every client of every kind. The primary loopback
 listener and everything agents do are untouched.
 
+![Headless AO — big picture: clients, tailnet, and the daemon host](assets/headless/beat1-big-picture.png)
+
 ---
 
 ## Before → after
@@ -44,32 +46,9 @@ verification, no version checks, manual reconnects. A hack, not a feature.
 **Now:** the daemon is a first-class headless citizen with a supported
 install artifact, a fail-closed startup contract, and three equal clients.
 
-```mermaid
-flowchart LR
-    subgraph Clients["Clients (any device on the tailnet)"]
-        B["Browser<br/>(dashboard, cookie session)"]
-        M["Mac desktop app<br/>(loopback proxy + Bearer)"]
-        P["Mobile app<br/>(Bearer, existing flow)"]
-    end
+![Before: the local model and the workaround era](assets/headless/beat0-before.png)
 
-    subgraph TS["Tailscale tailnet"]
-        TLS["HTTPS only · MagicDNS cert<br/>never public internet"]
-    end
-
-    subgraph Pi["Headless host (Pi / VM)"]
-        SRV["tailscale serve :443"]
-        LAN["Authenticated listener :3011<br/>password + lockout"]
-        CORE["AO daemon core"]
-        LOOP["Loopback listener<br/>127.0.0.1:3001 — local/SSH only, no auth"]
-        TMUX["tmux → agent CLIs"]
-        SRV --> LAN --> CORE
-        LOOP --> CORE
-        CORE --> TMUX
-    end
-
-    B & M & P -->|"HTTPS + credential"| TLS --> SRV
-    LOOP -.-x|"never exposed<br/>off loopback"| TLS
-```
+![After: headless daemon, native clients, supported install](assets/headless/beat0-after.png)
 
 ---
 
@@ -83,6 +62,8 @@ shared connection password, presented as an `Authorization: Bearer` token
 (desktop, mobile) or exchanged once for a signed browser cookie (dashboard).
 It travels only inside tailnet HTTPS. This is what `ao remote credentials`
 prints and `ao remote rotate` rotates.
+
+![Plane 1: client authentication to the daemon — connect, store, rotate](assets/headless/beat3-auth-client.png)
 
 **Plane 2 — the daemon ↔ agent providers.** How `claude`, `codex`,
 `kilocode`, etc. prove themselves to Anthropic/OpenAI/z.ai. **AO never
@@ -101,6 +82,8 @@ container → daemon → tmux → claude-code → Anthropic and came back as the
 provider's own 401; a real z.ai key completed a live `ok` reply through
 kilocode — both inside the Docker e2e harness.
 
+![Plane 2: agents inherit credentials from the daemon's environment and HOME](assets/headless/beat4-auth-agents.png)
+
 ---
 
 ## What changed, layer by layer
@@ -108,6 +91,8 @@ kilocode — both inside the Docker e2e harness.
 ### Backend — `ao headless`, `ao remote`, API version (PR 1)
 
 Commits `47b5a0548` (+ merge upkeep) on `feat/headless-remote-daemon`.
+
+![Install and boot: one tarball, one systemd unit, one fail-closed command](assets/headless/beat2-install-boot.png)
 
 - **`ao headless`** is a foreground, systemd-friendly entrypoint
   (`backend/internal/cli/headless.go`, `backend/internal/daemon/headless.go`).

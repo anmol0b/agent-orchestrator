@@ -122,7 +122,7 @@ Connection failures are reported with specific causes:
   side.
 - **certificate could not be verified** — check `tailscale serve status` on
   the Pi.
-- **API version is not supported** — upgrade the daemon on the Pi (§7) or the
+- **API version is not supported** — upgrade the daemon on the Pi (§8) or the
   app. Version drift is detected at connect time, not per-route later.
 
 **Disconnect** switches the app back to its local daemon but keeps the saved
@@ -142,7 +142,35 @@ involved:
 A worker started from the Mac app is visible and controllable from the phone,
 and vice versa — both clients share the Pi's daemon state.
 
-## 7. Upgrades and password rotation
+## 7. Open the browser dashboard
+
+The same URL the Mac and mobile apps use is also a full web dashboard — the
+daemon serves the production AO UI from its authenticated listener:
+
+1. `ao headless` prints `Dashboard URL: https://<host>.<tailnet>.ts.net`.
+2. Open that URL in any browser on any device joined to the same tailnet.
+3. Enter the connection password (from `ao remote credentials` on the Pi).
+
+The password is exchanged once for a signed 24-hour session cookie
+(`ao_web_session`: `Secure`, `HttpOnly`, `SameSite=Strict`). From there the
+browser manages projects, sessions, Chat, terminals, PRs, and reviews — no
+desktop app required. Hash-based routing means deep links and refreshes work
+without any server-side fallback.
+
+Session behavior:
+
+- **Rotation** invalidates every browser session the instant `ao remote
+  rotate` runs — the cookie carries the password hash it was issued against.
+- **Daemon restarts** keep sessions valid (the signing key lives under
+  `~/.ao/mobile/`, mode 0600).
+- **Sign out** from Settings → Daemon connection in the dashboard, or let the
+  cookie expire after 24 hours.
+
+The dashboard runs with a strict same-origin CSP and never contacts telemetry
+endpoints. The URL stays private to the tailnet — Tailscale Funnel and
+public-internet exposure remain unsupported.
+
+## 8. Upgrades and password rotation
 
 Upgrade the Pi:
 
@@ -163,7 +191,7 @@ Rotate the password with `ao remote rotate` on the Pi. Rotation takes effect
 immediately: every connected client (desktop and mobile) is rejected until
 reconnected with the new credentials.
 
-## 8. Not available in remote mode
+## 9. Not available in remote mode
 
 Features that assume the daemon shares the Mac's filesystem or devices are
 disabled with an in-app explanation while connected remotely:
@@ -185,6 +213,12 @@ disabled with an in-app explanation while connected remotely:
       pairing active.
 - [ ] Mac app connects via Settings → Daemon connection → Remote and shows
       the Pi's sessions.
+- [ ] Browser dashboard: opening the printed Dashboard URL from a second
+      tailnet device shows the login page; the password signs in; sessions,
+      Chat, and terminals work; signing out returns to the login page.
+- [ ] Browser dashboard: after `ao remote rotate`, an open dashboard session
+      is rejected and must sign in with the new password.
+- [ ] The Dashboard URL is unreachable from a machine outside the tailnet.
 - [ ] Mobile app can open a worker session while off the home network
       (cellular test).
 - [ ] Quitting AO on the Mac does **not** stop `ao-headless` on the Pi.

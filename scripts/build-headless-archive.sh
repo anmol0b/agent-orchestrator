@@ -37,6 +37,9 @@ rm -rf "$staging"
 mkdir -p "$staging/bin"
 
 echo "Building ao (${platform}/${arch})"
+# The web dashboard is embedded at compile time (//go:embed): build and sync
+# the production web bundle BEFORE compiling ao.
+"${REPO_ROOT}/scripts/sync-web-assets.sh"
 (cd "${REPO_ROOT}/backend" && CGO_ENABLED=0 go build -o "${staging}/bin/ao" ./cmd/ao)
 chmod 0755 "${staging}/bin/ao"
 

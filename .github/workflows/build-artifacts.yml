@@ -245,11 +245,22 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/acp-runtime/package-lock.json
+          cache-dependency-path: |
+            frontend/acp-runtime/package-lock.json
+            frontend/package-lock.json
+            packages/product-ui/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # The archive embeds the web dashboard (build:web) at go-compile time,
+      # so the renderer deps must be installed before the build script runs.
+      - name: Install renderer dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Install product UI dependencies
+        run: npm ci
+        working-directory: packages/product-ui
       - name: Build headless archive
         run: scripts/build-headless-archive.sh
       # Validate the artifact itself, not just the staging dir: extract the
@@ -266,6 +277,9 @@ jobs:
           (cd "$tmp" && sha256sum -c "$base.sha256" && tar -xzf "$base")
           root="$tmp/ao-headless-linux-${{ matrix.arch }}"
           "$root/bin/ao" headless --help >/dev/null
+          # The web dashboard is embedded at compile time; its CSP marker must
+          # be present in the packaged binary.
+          grep -aq "connect-src" "$root/bin/ao" || { echo "embedded web bundle missing" >&2; exit 1; }
           test -f "$root/acp-runtime/node/bin/node"
           test -f "$root/acp-runtime/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
       - name: Emit digest fragment

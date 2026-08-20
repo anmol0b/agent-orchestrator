@@ -1,0 +1,1 @@
+import{n as e}from"./shim-BRgC1qxS.js";import{t}from"./SessionView-BJ-BjE1o.js";import{a as n}from"./index-D_YFGtGw.js";var r=e();function i(){let{sessionId:e}=n.useParams();return(0,r.jsx)(t,{sessionId:e})}export{i as component};

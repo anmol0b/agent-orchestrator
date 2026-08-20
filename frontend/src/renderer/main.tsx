@@ -10,6 +10,8 @@ import { queryClient } from "./lib/query-client";
 import { mergeUnreadNotification, unreadNotificationsQueryKey } from "./lib/notifications";
 import { createAppRouter } from "./router";
 import { TelemetryBoundary } from "./components/TelemetryBoundary";
+import { WebGate } from "./components/WebGate";
+import { isWebMode } from "./lib/web-mode";
 import { initTelemetry } from "./lib/telemetry";
 import { startDaemonFailureTelemetry } from "./lib/daemon-telemetry";
 import { startUpdateTelemetry } from "./lib/update-telemetry";
@@ -73,14 +75,19 @@ async function renderApp(): Promise<void> {
 	// Resolve the persisted locale before mounting so translated text never
 	// flashes in English for users who selected another language.
 	await useLocaleStore.getState().load();
+	const app = (
+		<TelemetryBoundary>
+			<QueryClientProvider client={queryClient}>
+				<RouterProvider router={router} />
+			</QueryClientProvider>
+		</TelemetryBoundary>
+	);
 	createRoot(document.getElementById("root") as HTMLElement).render(
 		<React.StrictMode>
 			<I18nextProvider i18n={appI18n}>
-				<TelemetryBoundary>
-					<QueryClientProvider client={queryClient}>
-						<RouterProvider router={router} />
-					</QueryClientProvider>
-				</TelemetryBoundary>
+				{/* Web mode: nothing (queries, SSE, mux) mounts until the daemon's
+				    session cookie is confirmed — the gate owns that handshake. */}
+				{isWebMode() ? <WebGate>{app}</WebGate> : app}
 			</I18nextProvider>
 		</React.StrictMode>,
 	);

@@ -4,6 +4,7 @@ import { RadioGroup } from "radix-ui";
 import { Loader2 } from "lucide-react";
 import { aoBridge } from "../../lib/bridge";
 import { useShellMaybe } from "../../lib/shell-context";
+import { isWebMode } from "../../lib/web-mode";
 import { validateRemoteUrl, type RemoteDaemonConfigView } from "../../../shared/remote-url";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -49,6 +50,32 @@ export function DaemonConnectionSection({ titleHidden }: { titleHidden?: boolean
 
 	const connected = status?.connection === "remote" && status.state === "ready";
 	const displayUrl = config?.url ?? url;
+
+	// Web mode: the browser session IS the connection — no local/remote picker,
+	// no stored credentials on disk, just sign-out (revokes the session cookie).
+	if (isWebMode()) {
+		return (
+			<SettingsSection title={t("settings.daemonConnection")} sectionId="daemon-connection" titleHidden={titleHidden} grouped>
+				<div className="settings-row-bar h-auto min-h-(--size-settings-row) flex-wrap gap-2">
+					<span className="min-w-0 flex-1 text-sm leading-5 text-settings-label">
+						{t("settings.daemonConnection.webSession", { host: window.location.host })}
+					</span>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={() => {
+							void fetch("/auth/logout", { method: "POST", credentials: "same-origin" }).finally(() => {
+								window.location.reload();
+							});
+						}}
+					>
+						{t("settings.daemonConnection.webSignOut")}
+					</Button>
+				</div>
+			</SettingsSection>
+		);
+	}
 
 	const testAndConnect = async () => {
 		setError(null);

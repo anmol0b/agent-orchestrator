@@ -24,6 +24,7 @@ import {
 } from "../hooks/useTerminalSession";
 import { useSessionBrowserLink } from "../hooks/useSessionBrowserLink";
 import { getApiBaseUrl } from "../lib/api-client";
+import { isWebMode } from "../lib/web-mode";
 import {
 	createTerminalMux,
 	createTerminalMuxPool,
@@ -666,9 +667,11 @@ export function TerminalPane({
 			? terminalTarget.handleId
 			: (session?.terminalHandleId ?? "empty");
 
-	if (!window.ao) {
+	if (!window.ao && !isWebMode()) {
 		// A standalone shell has no agent and no branch, so it previews as a plain
-		// prompt rather than borrowing the session's agent transcript.
+		// prompt rather than borrowing the session's agent transcript. (Web mode
+		// has no preload bridge either, but its terminals are real: they ride the
+		// same-origin /mux socket, so only the mock preview takes this path.)
 		if (terminalTarget?.kind === "shell") {
 			return (
 				<pre

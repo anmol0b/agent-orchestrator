@@ -223,10 +223,94 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Standalone headless Linux archives (see docs/remote-daemon.md), built
+  # host-native because the bundled ACP Node runtime is arch-specific. Digests
+  # use the same fragment contract as the desktop platforms and merge into
+  # digests.json below.
+  headless:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/acp-runtime/package-lock.json
+            frontend/package-lock.json
+            packages/product-ui/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # The archive embeds the web dashboard (build:web) at go-compile time,
+      # so the renderer deps must be installed before the build script runs.
+      - name: Install renderer dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Install product UI dependencies
+        run: npm ci
+        working-directory: packages/product-ui
+      - name: Build headless archive
+        run: scripts/build-headless-archive.sh
+      # Validate the artifact itself, not just the staging dir: extract the
+      # tarball fresh, verify its checksum sidecar, and run the packaged
+      # binary. On the ARM runner this is also the first real ARM64 Linux
+      # execution of the archive.
+      - name: Self-test the archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="ao-headless-linux-${{ matrix.arch }}.tar.gz"
+          tmp="$(mktemp -d)"
+          cp "dist/headless/$base" "dist/headless/$base.sha256" "$tmp/"
+          (cd "$tmp" && sha256sum -c "$base.sha256" && tar -xzf "$base")
+          root="$tmp/ao-headless-linux-${{ matrix.arch }}"
+          "$root/bin/ao" headless --help >/dev/null
+          # The web dashboard is embedded at compile time; its CSP marker must
+          # be present in the packaged binary.
+          grep -aq "connect-src" "$root/bin/ao" || { echo "embedded web bundle missing" >&2; exit 1; }
+          test -f "$root/acp-runtime/node/bin/node"
+          test -f "$root/acp-runtime/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+      - name: Emit digest fragment
+        shell: bash
+        run: |
+          base="ao-headless-linux-${{ matrix.arch }}.tar.gz"
+          hash="$(openssl dgst -sha256 "dist/headless/$base" | awk '{print $NF}')"
+          jq -n --arg f "$base" --arg h "$hash" '{($f): $h}' \
+            > "dist/headless/headless-${{ matrix.arch }}.digest.json"
+          echo "headless-${{ matrix.arch }}: $base sha256=$hash" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-linux-${{ matrix.arch }}
+          path: |
+            dist/headless/ao-headless-linux-${{ matrix.arch }}.tar.gz
+            dist/headless/ao-headless-linux-${{ matrix.arch }}.tar.gz.sha256
+          retention-days: 1
+          if-no-files-found: error
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-headless-${{ matrix.arch }}
+          path: dist/headless/headless-${{ matrix.arch }}.digest.json
+          retention-days: 1
+          if-no-files-found: error
+
   # Merge the per-platform digest fragments into one digests.json artifact so
   # a downstream consumer reads every expected hash from a single file.
   digests:
-    needs: build
+    needs: [build, headless]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

@@ -180,6 +180,50 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Standalone headless Linux archives (Raspberry Pi / servers, see
+  # docs/remote-daemon.md). Host-native builds on purpose: the bundled ACP Node
+  # runtime is arch-specific (build-acp-runtime.mjs keys the Node download off
+  # process.platform/process.arch), so the arm64 leg must run on an ARM runner.
+  # Runs after the desktop jobs because the GitHub Release is created by their
+  # forge publish step; gh release upload needs it to exist.
+  release-headless:
+    needs: [release, release-intel]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    environment: release # same approval gate as the desktop publish jobs
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/acp-runtime/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Build headless archive
+        run: scripts/build-headless-archive.sh
+      - name: Upload headless archive
+        shell: bash
+        run: |
+          # Forge publishes to v<package.json version> (see the macOS alias
+          # step in the release job), not the git tag. Target that release.
+          tag="v$(node -p "require('./frontend/package.json').version")"
+          base="ao-headless-linux-${{ matrix.arch }}.tar.gz"
+          gh release upload "$tag" "dist/headless/$base" "dist/headless/$base.sha256" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Dedicated Intel (darwin-x64) build leg. Kept a separate job (not in the
   # release matrix) because only a macOS host can build the x64 installer, but
   # publish-feed now waits on it (needs: [release, release-intel]) so the x64

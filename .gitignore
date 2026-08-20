@@ -100,3 +100,6 @@ e2e-artifacts/
 
 # Local pnpm artifacts
 pnpm-lock.yaml
+
+# Real-link harness: local Tailscale auth key (never commit)
+test/headless-link/.authkey

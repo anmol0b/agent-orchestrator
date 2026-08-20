@@ -30,6 +30,10 @@
 # This script asserts behavior, not timing. On a slow Pi, bump WAIT_TIMEOUT.
 # The connection password is never printed; it is read from `ao remote
 # credentials --json` into a chmod-600 temp file that is deleted on exit.
+#
+# Env overrides: AO_SMOKE_SERVICE, AO_SMOKE_LOOPBACK, AO_SMOKE_AO,
+# AO_SMOKE_WAIT, AO_SMOKE_NO_SYSTEMD=1 (containers / non-systemd hosts:
+# skips the systemctl checks and the restart-persistence section).
 
 set -euo pipefail
 
@@ -50,7 +54,11 @@ WORKDIR="$(mktemp -d)"
 chmod 700 "$WORKDIR"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-for tool in curl python3 systemctl tailscale "$AO_BIN"; do
+need="curl python3 tailscale $AO_BIN"
+# systemd is only required outside AO_SMOKE_NO_SYSTEMD mode (containers,
+# non-systemd hosts) — the service checks and restart section skip there.
+[ -z "${AO_SMOKE_NO_SYSTEMD:-}" ] && need="$need systemctl"
+for tool in $need; do
 	command -v "$tool" >/dev/null 2>&1 || {
 		echo "missing required tool: $tool" >&2
 		exit 2
@@ -63,6 +71,15 @@ json_get() {
 }
 
 http_code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+
+# http_fetch <out-file> [curl-args...] — like http_code but captures the body.
+# Separate helper because curl honors only the first -o; passing -o through
+# http_code would silently write the body to /dev/null.
+http_fetch() {
+	local out="$1"
+	shift
+	curl -s -o "$out" -w '%{http_code}' "$@"
+}
 
 # current_password <out-var>: read `ao remote credentials --json` into a
 # 0600 temp file and export the password into the named variable.
@@ -98,16 +115,20 @@ fi
 BASE="https://$DNSNAME"
 
 # ---------------------------------------------------------------- service
-[ "$(systemctl is-active "$SERVICE")" = "active" ] \
-	&& pass "service: $SERVICE active" \
-	|| fail "service" "$SERVICE not active (systemctl status $SERVICE)"
-[ "$(systemctl is-enabled "$SERVICE")" = "enabled" ] \
-	&& pass "service: $SERVICE enabled at boot" \
-	|| fail "service" "$SERVICE not enabled (systemctl enable $SERVICE)"
+if [ -n "${AO_SMOKE_NO_SYSTEMD:-}" ]; then
+	skip "service" "no systemd on this host (AO_SMOKE_NO_SYSTEMD=1)"
+else
+	[ "$(systemctl is-active "$SERVICE")" = "active" ] \
+		&& pass "service: $SERVICE active" \
+		|| fail "service" "$SERVICE not active (systemctl status $SERVICE)"
+	[ "$(systemctl is-enabled "$SERVICE")" = "enabled" ] \
+		&& pass "service: $SERVICE enabled at boot" \
+		|| fail "service" "$SERVICE not enabled (systemctl enable $SERVICE)"
+fi
 
 # ------------------------------------------------------- loopback health
 HZ="$WORKDIR/healthz.json"
-[ "$(http_code "$LOOPBACK/healthz" -o "$HZ")" = "200" ] \
+[ "$(http_fetch "$HZ" "$LOOPBACK/healthz")" = "200" ] \
 	&& pass "loopback: GET /healthz 200" \
 	|| fail "loopback" "GET $LOOPBACK/healthz did not return 200"
 if [ -s "$HZ" ]; then
@@ -141,7 +162,7 @@ current_password PASS || {
 AUTH="Authorization: Bearer $PASS"
 
 # ------------------------------------------------- TLS + dashboard shell
-if [ "$(http_code "$BASE/" -o "$WORKDIR/index.html")" = "200" ]; then
+if [ "$(http_fetch "$WORKDIR/index.html" "$BASE/")" = "200" ]; then
 	pass "tls: GET $BASE/ 200 (Tailscale cert chain validated by curl)"
 else
 	fail "tls" "GET $BASE/ failed — check tailscale serve status on the Pi"
@@ -158,7 +179,7 @@ if [ "$DASH" = 1 ]; then
 	grep -q '<div id="root">' "$WORKDIR/index.html" \
 		&& pass "dashboard: / serves the web app shell" \
 		|| fail "dashboard" "/ did not contain the app shell (<div id=\"root\">)"
-	[ "$(http_code "$BASE/auth/session" -o "$WORKDIR/session.json")" = "200" ] \
+	[ "$(http_fetch "$WORKDIR/session.json" "$BASE/auth/session")" = "200" ] \
 		&& [ "$(json_get "$WORKDIR/session.json" 'd["authenticated"]')" = "False" ] \
 		&& pass "dashboard: /auth/session reports unauthenticated before login" \
 		|| fail "dashboard" "/auth/session did not report unauthenticated"
@@ -195,9 +216,9 @@ if [ "$DASH" = 1 ]; then
 	python3 -c 'import json,sys; print(json.dumps({"password": sys.argv[1]}))' "$PASS" >"$WORKDIR/login-body.json"
 	chmod 600 "$WORKDIR/login-body.json"
 	LOGIN_HEADERS="$WORKDIR/login-headers.txt"
-	if [ "$(http_code -X POST -H 'Content-Type: application/json' \
+	if [ "$(http_fetch "$WORKDIR/login.json" -X POST -H 'Content-Type: application/json' \
 		-d @"$WORKDIR/login-body.json" -c "$JAR" -D "$LOGIN_HEADERS" \
-		"$BASE/auth/login" -o "$WORKDIR/login.json")" = "200" ]; then
+		"$BASE/auth/login")" = "200" ]; then
 		pass "login: correct password accepted (200)"
 	else
 		fail "login" "correct password rejected on /auth/login"
@@ -231,9 +252,16 @@ fi
 [ "$(http_code -H "$AUTH" "$BASE/api/v1/mobile/status")" = "404" ] \
 	&& pass "isolation: /api/v1/mobile/* blocked on remote listener" \
 	|| fail "isolation" "/api/v1/mobile/status not 404 via remote listener"
-[ "$(systemctl is-active "$SERVICE")" = "active" ] \
-	&& pass "isolation: daemon still running after control-route probes" \
-	|| fail "isolation" "daemon not active after control-route probes"
+if [ -n "${AO_SMOKE_NO_SYSTEMD:-}" ]; then
+	# No systemctl here; the loopback probe proves the daemon survived.
+	[ "$(http_code "$LOOPBACK/healthz")" = "200" ] \
+		&& pass "isolation: daemon still answering after control-route probes" \
+		|| fail "isolation" "daemon not answering after control-route probes"
+else
+	[ "$(systemctl is-active "$SERVICE")" = "active" ] \
+		&& pass "isolation: daemon still running after control-route probes" \
+		|| fail "isolation" "daemon not active after control-route probes"
+fi
 
 # ---------------------------------------------------------------- rotation
 OLD_PASS="$PASS"
@@ -263,20 +291,24 @@ fi
 unset OLD_PASS
 
 # ------------------------------------------------------ restart persistence
-info "restarting $SERVICE (sudo may prompt)..."
-if sudo systemctl restart "$SERVICE" && wait_ready; then
-	pass "restart: $SERVICE back to ready after systemctl restart"
+if [ -n "${AO_SMOKE_NO_SYSTEMD:-}" ]; then
+	skip "restart" "no systemd on this host — restart the daemon supervisor manually and rerun"
 else
-	fail "restart" "$SERVICE did not become ready within ${WAIT_TIMEOUT}s"
+	info "restarting $SERVICE (sudo may prompt)..."
+	if sudo systemctl restart "$SERVICE" && wait_ready; then
+		pass "restart: $SERVICE back to ready after systemctl restart"
+	else
+		fail "restart" "$SERVICE did not become ready within ${WAIT_TIMEOUT}s"
+	fi
+	"$AO_BIN" remote status --json >"$ST" 2>/dev/null || true
+	[ "$(json_get "$ST" 'd["enabled"]' 2>/dev/null)" = "True" ] \
+		&& [ "$(json_get "$ST" 'd["securePairing"]["active"]' 2>/dev/null)" = "True" ] \
+		&& pass "restart: remote listener + secure pairing re-armed automatically" \
+		|| fail "restart" "remote listener did not re-arm after restart"
+	[ "$(http_code -H "$AUTH" "$BASE/api/v1/sessions")" = "200" ] \
+		&& pass "restart: same password still valid (no regeneration on restart)" \
+		|| fail "restart" "password changed across restart — clients would be dropped"
 fi
-"$AO_BIN" remote status --json >"$ST" 2>/dev/null || true
-[ "$(json_get "$ST" 'd["enabled"]' 2>/dev/null)" = "True" ] \
-	&& [ "$(json_get "$ST" 'd["securePairing"]["active"]' 2>/dev/null)" = "True" ] \
-	&& pass "restart: remote listener + secure pairing re-armed automatically" \
-	|| fail "restart" "remote listener did not re-arm after restart"
-[ "$(http_code -H "$AUTH" "$BASE/api/v1/sessions")" = "200" ] \
-	&& pass "restart: same password still valid (no regeneration on restart)" \
-	|| fail "restart" "password changed across restart — clients would be dropped"
 
 # ----------------------------------------------------------- manual steps
 cat <<EOF

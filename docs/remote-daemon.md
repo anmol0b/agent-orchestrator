@@ -207,6 +207,11 @@ disabled with an in-app explanation while connected remotely:
 
 ## Verification checklist
 
+`test/headless/smoke.sh` automates every item that can be checked on the Pi
+itself (service, health, remote state, TLS, dashboard auth, rotation,
+restart persistence); run it first, then complete the device-spanning items
+below by hand.
+
 - [ ] `systemctl status ao-headless` on the Pi shows `active (running)` after
       a fresh reboot.
 - [ ] `ao remote status` on the Pi shows the listener enabled and secure

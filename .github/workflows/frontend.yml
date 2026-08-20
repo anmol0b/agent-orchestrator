@@ -13,6 +13,8 @@ on:
       - "contracts/cloud/**"
       - "packages/cloud-client/**"
       - "packages/product-ui/**"
+      - "backend/internal/httpd/webassets/**"
+      - "scripts/sync-web-assets.sh"
       - ".github/workflows/frontend.yml"
 
 permissions:
@@ -89,6 +91,36 @@ jobs:
         env:
           AO_AGENT_BROWSER_TEST_BINARY: ${{ github.workspace }}/frontend/agent-browser/agent-browser
         run: npx vitest run
+
+  web-drift:
+    # The Go-embedded dashboard bundle must never drift from the renderer
+    # source: rebuild the web bundle, sync it into the embed tree, and fail if
+    # the committed copy differs (same convention as the api-drift job).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            packages/product-ui/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install product UI dependencies
+        run: npm ci
+        working-directory: packages/product-ui
+
+      - name: Rebuild and sync the embedded web bundle
+        run: scripts/sync-web-assets.sh
+
+      - name: Fail if the embedded bundle is stale
+        run: git diff --exit-code -- backend/internal/httpd/webassets/dist
 
   renderer-smoke:
     # RENDERER smoke (issue #2483, renderer slice) — the Playwright specs that run

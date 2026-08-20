@@ -1,0 +1,1 @@
+import{a as e}from"./chunk-Cyuzqnbw.js";import{t}from"./react-Bi8cP4Js.js";import{t as n}from"./useNavigate-iOS2NL48.js";import{n as r}from"./ui-store-BU2ufmJB.js";var i=e(t());function a(){let e=n(),t=r(e=>e.openGlobalSettings);return(0,i.useEffect)(()=>{t(),e({to:`/`,replace:!0})},[e,t]),null}export{a as component};

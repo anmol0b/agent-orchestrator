@@ -8,6 +8,11 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { DEFAULT_POSTHOG_HOST } from "./src/shared/posthog-config";
+import { electronCsp, webCsp } from "./src/shared/csp";
+
+// VITE_AO_WEB=1 selects the real browser build: served by the headless daemon
+// itself, same-origin transports, stricter CSP, separate output directory.
+const isWebBuild = process.env.VITE_AO_WEB === "1";
 
 const POSTHOG_ORIGINS = (() => {
 	const configured = process.env.VITE_AO_POSTHOG_HOST?.trim() || DEFAULT_POSTHOG_HOST;
@@ -42,21 +47,12 @@ const POSTHOG_ORIGINS = (() => {
 	return origins;
 })();
 
-// CSP for the built renderer. The daemon is loopback-only, so network access is
-// pinned to 127.0.0.1 (REST + SSE over http, terminal mux over ws). Injected at
-// build time rather than written into index.html because the dev server needs
-// inline scripts (react-refresh preamble) that a static meta tag would block.
-const CONTENT_SECURITY_POLICY = [
-	"default-src 'self'",
-	"script-src 'self'",
-	"style-src 'self' 'unsafe-inline'",
-	"img-src 'self' data: http://127.0.0.1:*",
-	"font-src 'self' data:",
-	["connect-src", "'self'", "http://127.0.0.1:*", "ws://127.0.0.1:*", ...POSTHOG_ORIGINS].filter(Boolean).join(" "),
-	"object-src 'none'",
-	"base-uri 'self'",
-	"frame-src 'none'",
-].join("; ");
+// CSP for the built renderer, injected at build time rather than written into
+// index.html because the dev server needs inline scripts (react-refresh
+// preamble) that a static meta tag would block. Electron pins network access
+// to loopback (REST + SSE over http, terminal mux over ws); the web build is
+// strictly same-origin.
+const CONTENT_SECURITY_POLICY = isWebBuild ? webCsp() : electronCsp(POSTHOG_ORIGINS);
 
 const injectCspMeta: Plugin = {
 	name: "inject-csp-meta",
@@ -98,6 +94,10 @@ const productUiReactBoundary: Plugin = {
 };
 
 export default defineConfig({
+	// The web build lands in dist-web/ (synced into the Go binary by
+	// scripts/sync-web-assets.sh); the Electron forge build keeps its default
+	// .vite/ output.
+	build: isWebBuild ? { outDir: "dist-web", emptyOutDir: true } : undefined,
 	// "@/" → the renderer root (src/renderer), the shadcn/ui import convention.
 	resolve: {
 		alias: {

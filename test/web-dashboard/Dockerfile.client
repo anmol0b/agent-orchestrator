@@ -1,0 +1,7 @@
+FROM mcr.microsoft.com/playwright:v1.60.0-noble
+WORKDIR /e2e
+COPY test/web-dashboard/client/package.json ./
+RUN npm install --no-audit --no-fund
+COPY test/web-dashboard/client/playwright.config.ts ./
+COPY test/web-dashboard/client/dashboard.spec.ts ./
+ENTRYPOINT ["npx", "playwright", "test"]

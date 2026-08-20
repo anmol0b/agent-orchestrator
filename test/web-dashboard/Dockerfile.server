@@ -1,0 +1,43 @@
+# Server side of the web-dashboard e2e gate: a headless AO daemon behind an
+# HTTPS reverse proxy that emulates `tailscale serve` (TLS in front, plain HTTP
+# to the authenticated LAN listener behind), with a fake tailscale CLI so
+# `ao headless` can arm secure pairing without a tailnet.
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+COPY backend/go.mod backend/go.sum ./backend/
+RUN cd backend && go mod download
+COPY backend ./backend
+# The web bundle is embedded at compile time from the committed tree
+# (backend/internal/httpd/webassets/dist, synced by scripts/sync-web-assets.sh).
+RUN cd backend && CGO_ENABLED=0 go build -o /out/ao ./cmd/ao
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git tmux procps nginx openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/ao /usr/local/bin/ao
+COPY test/web-dashboard/fake-bin/tailscale /usr/local/bin/tailscale
+COPY test/web-dashboard/nginx.conf /etc/nginx/nginx.conf
+COPY test/web-dashboard/start-server.sh /usr/local/bin/start-server.sh
+# Deterministic stand-in for the agent CLI: spawn's binary check is a hard
+# gate, and a real agent would drag in onboarding/auth non-determinism. The
+# stub just has to exist, launch, and stay alive inside tmux.
+RUN printf '#!/bin/sh\nprintf "FAKE-AGENT-READY\\n"\nexec sleep infinity\n' > /usr/local/bin/claude \
+    && chmod +x /usr/local/bin/claude /usr/local/bin/tailscale /usr/local/bin/start-server.sh \
+    && mkdir -p /etc/nginx/tls \
+    && openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -subj "/CN=ao-e2e.tailnet.test" \
+        -keyout /etc/nginx/tls/ao-e2e.key -out /etc/nginx/tls/ao-e2e.crt \
+    && mkdir -p /data/ao /tmp/e2eproj
+
+# AO_FAKE_HARNESS opts the daemon into the deterministic fake agent catalog
+# entry (unused by this gate's shell-terminal flow but cheap to keep on);
+# AO_FAKE_SPEEDUP compresses its timeline if a later spec uses it.
+ENV AO_DATA_DIR=/data/ao \
+    AO_RUN_FILE=/data/ao/running.json \
+    AO_FAKE_HARNESS=1 \
+    AO_FAKE_SPEEDUP=20
+
+EXPOSE 443
+ENTRYPOINT ["/usr/local/bin/start-server.sh"]

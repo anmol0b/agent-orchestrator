@@ -1,0 +1,46 @@
+#!/bin/sh
+# Fake tailscale CLI for the web-dashboard e2e gate. Satisfies exactly the
+# contract the backend shells out for (mobilebridge/magicdns.go and
+# tailscaleserve.go): `status --json`, `serve --bg --https=443 <target>`,
+# `serve status --json`, and `serve --https=443 off`. The configured serve
+# target is recorded in a state file and echoed back.
+STATE=/tmp/ao-fake-serve-target
+HOST="ao-e2e.tailnet.test"
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+	status)
+		printf '{"Self":{"DNSName":"%s."},"CertDomains":["%s"]}\n' "$HOST" "$HOST"
+		;;
+	serve)
+		sub="${1:-}"
+		[ $# -gt 0 ] && shift
+		case "$sub" in
+			--bg)
+				# remaining args: --https=443 http://127.0.0.1:PORT
+				target="${2:-}"
+				printf '%s' "${target##*:}" > "$STATE"
+				;;
+			status)
+				if [ -f "$STATE" ]; then
+					printf '{"Web":{"%s:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:%s"}}}}}\n' "$HOST" "$(cat "$STATE")"
+				else
+					printf '{"Web":{}}\n'
+				fi
+				;;
+			--https=443)
+				# "off" — clearing the proxy is idempotent.
+				rm -f "$STATE"
+				;;
+			*)
+				echo "fake tailscale: unhandled serve $sub $*" >&2
+				exit 1
+				;;
+		esac
+		;;
+	*)
+		echo "fake tailscale: unhandled $cmd $*" >&2
+		exit 1
+		;;
+esac

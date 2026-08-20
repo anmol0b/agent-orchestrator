@@ -11,7 +11,11 @@ import (
 // scripts/sync-web-assets.sh; CI fails if the committed copy drifts from the
 // source (same convention as apispec/openapi.yaml).
 //
-//go:embed webassets/dist
+// The all: prefix is load-bearing: the router's lazily imported chunks are
+// named `_shell-*.js`, and go:embed silently drops files starting with "_"
+// or "." without it — serving the login page but 404ing every route chunk.
+//
+//go:embed all:webassets/dist
 var webDistFS embed.FS
 
 // webAssets returns the embedded web bundle rooted at the dist directory.

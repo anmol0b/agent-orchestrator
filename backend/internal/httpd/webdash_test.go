@@ -1,6 +1,7 @@
 package httpd
 
 import (
+	"io/fs"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -385,6 +386,16 @@ func TestMuxWebSocketOriginGuard(t *testing.T) {
 		t.Fatalf("same-origin ws dial: %v", err)
 	}
 	_ = c.Close(websocket.StatusNormalClosure, "done")
+}
+
+func TestEmbeddedBundleIncludesUnderscoreChunks(t *testing.T) {
+	// go:embed drops "_"/"."-prefixed files without the all: prefix; the
+	// router's lazy route chunks are _shell-*.js, so losing them breaks every
+	// dynamic import after the login page (caught by the e2e gate).
+	matches, err := fs.Glob(webAssets(), "assets/_shell*")
+	if err != nil || len(matches) == 0 {
+		t.Fatalf("embedded bundle is missing _shell-* route chunks: matches=%v err=%v", matches, err)
+	}
 }
 
 func TestSameOriginRequest(t *testing.T) {
